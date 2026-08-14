@@ -21,6 +21,7 @@ include lib/qcbor/qcbor.mk
 # comment as running to the end of the *logical* line, so a '#' on a
 # backslash-continued line silently discards every remaining entry.
 BL31_SOURCES	+=	${TME_DRIVER_PATH}/tme_boot_test.c			\
+			${TME_DRIVER_PATH}/tme_fuse.c				\
 			${TME_DRIVER_PATH}/tmecom_mbox.c				\
 			${TME_DRIVER_PATH}/tme_tfa_glue.c			\
 			${TME_DRIVER_PATH}/tmecom/src/tmecom.c			\

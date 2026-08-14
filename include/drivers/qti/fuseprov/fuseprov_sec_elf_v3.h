@@ -1,0 +1,133 @@
+/*
+ * Copyright (c) 2026, Qualcomm Innovation Center, Inc. All rights reserved.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+#ifndef FUSEPROV_SEC_ELF_V3_H
+#define FUSEPROV_SEC_ELF_V3_H
+
+#include <stdint.h>
+
+/* High-level parser error codes (mirrors TZ fuseprov_error_etype) */
+typedef enum {
+	FUSEPROV_SUCCESS = 0,
+	FUSEPROV_FAILURE = 1,
+	FUSEPROV_INVALID_ARG = 2,
+	FUSEPROV_NO_MEMORY = 3,
+	FUSEPROV_SECDAT_MAGIC_MISMATCH = 4,
+	FUSEPROV_SECDAT_REV_NOT_SUPPORTED = 5,
+	FUSEPROV_SECDAT_SIZE_LEN_MISMATCH = 6,
+	FUSEPROV_QFPROM_READ_ERROR = 7,
+	FUSEPROV_QFUSE_REV_NOT_SUPPORTED = 8,
+	FUSEPROV_INVALID_HASH = 9,
+	FUSEPROV_SECDAT_LOCK_BLOWN = 10,
+	FUSEPROV_QFPROM_WRITE_ERROR = 11,
+	FUSEPROV_SHK_RD_WR_DISABLE_BLOWN = 12,
+	FUSEPROV_SHK_GENERATION_FAILED = 13,
+	FUSEPROV_SHK_ALRDY_BLOWN = 14,
+	FUSEPROV_SHK_RD_WR_MISMATCH = 15,
+	FUSEPROV_SECDAT_DEFAULT_NOFUSES = 16,
+	FUSEPROV_SEGMENT_NOT_FOUND = 17,
+	FUSEPROV_SECDAT_SEGMENT_NUM_NOT_SUPPORTED = 18,
+	FUSEPROV_SECDAT_HASH_SIZE_MISMATCH = 19,
+	FUSEPROV_OEM_SPARE_ALRDY_BLOWN = 20,
+	FUSEPROV_OEM_SPARE_RAND_GEN_FAILED = 21,
+	FUSEPROV_INVALID_REGION_TYPE = 22,
+	FUSEPROV_INVALID_OPERATION_TYPE = 23,
+} fuseprov_error_etype;
+
+/* SEC.DAT v3 header structure */
+typedef struct {
+	uint32_t magic1;           /* 0x3B7251CA */
+	uint32_t magic2;           /* 0x2A126F29 */
+	uint32_t revision;         /* 3 */
+	uint32_t size;             /* Total data size after header */
+	uint8_t info[16];          /* Metadata/info string */
+	uint32_t segment_number;   /* Number of segments */
+	uint32_t reserved[3];      /* Padding */
+} fuseprov_secdat_hdr_t;
+
+/* SEC.DAT v3 segment header */
+typedef struct {
+	uint32_t segment_type;     /* EFUSE (0x0) or ENCKEY (0x1) */
+	uint32_t segment_size;     /* Size of segment data */
+	uint32_t offset;           /* Offset from end of segment headers */
+} fuseprov_segment_hdr_t;
+
+/* Fuse list header within a segment */
+typedef struct {
+	uint32_t revision;         /* 2 or 3 */
+	uint32_t fuse_count;       /* Number of fuse entries */
+	uint32_t size;             /* Size of fuse list data */
+} fuseprov_qfuse_list_hdr_t;
+
+/* Individual fuse entry */
+typedef struct {
+	uint32_t region_type;      /* Region type (OEM_CONFIG, SECBOOT, etc.) */
+	uint32_t raw_row_address;  /* QFPROM row address */
+	uint32_t lsb_val;          /* LSB value to write */
+	uint32_t msb_val;          /* MSB value to write */
+	uint32_t operation;        /* Operation type (BLOW, BLOW_RANDOM, etc.) */
+} fuseprov_qfuse_entry_t;
+
+/* SEC.DAT footer with hash */
+typedef struct {
+	uint8_t hash[32];          /* SHA256 hash of header + segments + data */
+} fuseprov_secdat_footer_t;
+
+/* Region type enums */
+typedef enum {
+	FUSEPROV_REGION_TYPE_OEM_SEC_BOOT = 0x0,
+	FUSEPROV_REGION_TYPE_OEM_PK_HASH = 0x1,
+	FUSEPROV_REGION_TYPE_SEC_HW_KEY = 0x2,
+	FUSEPROV_REGION_TYPE_OEM_CONFIG = 0x3,
+	FUSEPROV_REGION_TYPE_READ_PERM = 0x4,
+	FUSEPROV_REGION_TYPE_WRITE_PERM = 0x5,
+	FUSEPROV_REGION_TYPE_FEC_EN = 0x6,
+	FUSEPROV_REGION_TYPE_ANTI_ROLLBACK = 0x7,
+	FUSEPROV_REGION_TYPE_IMAGE_ENCR_KEY = 0x8,
+	FUSEPROV_REGION_TYPE_MRC_2_0 = 0x9,
+	FUSEPROV_REGION_TYPE_OEM_SPARE = 0xA,
+	FUSEPROV_REGION_TYPE_OEM_PRODUCT_SEED = 0xB,
+} fuseprov_region_type_t;
+
+/* Operation type enums */
+typedef enum {
+	FUSEPROV_OPERATION_BLOW = 0x0,
+	FUSEPROV_OPERATION_VERIFYMASK0 = 0x1,
+	FUSEPROV_OPERATION_BLOW_RANDOM = 0x2,
+} fuseprov_operation_type_t;
+
+/* Fuse provisioning category */
+typedef enum {
+	FUSEPROV_CATEGORY_GENERAL = 0,
+	FUSEPROV_CATEGORY_SHK = 1,
+	FUSEPROV_CATEGORY_OEM_PRODUCT_SEED = 2,
+	FUSEPROV_CATEGORY_OEM_SPARE = 3,
+	FUSEPROV_CATEGORY_OEM_CONFIG = 4,
+	FUSEPROV_CATEGORY_SECBOOT = 5,
+	FUSEPROV_CATEGORY_FEC_EN = 6,
+	FUSEPROV_CATEGORY_READ_PERM = 7,
+	FUSEPROV_CATEGORY_WRITE_PERM = 8,
+} fuseprov_category_t;
+
+/* SEC.DAT magic numbers and constants */
+#define FUSEPROV_SECDAT_MAGIC1           0x3B7251CA
+#define FUSEPROV_SECDAT_MAGIC2           0x2A126F29
+#define FUSEPROV_SECDAT_V3_REV           3
+#define FUSEPROV_FEC_ROW_MSB_MASK        0xFF000000
+
+/* Segment types */
+#define FUSEPROV_SEGMENT_TYPE_EFUSE      0x0
+#define FUSEPROV_SEGMENT_TYPE_ENCKEY     0x1
+
+/* Secure memory clearing - prevents compiler optimization */
+static inline void fuseprov_secure_memset(void *s, int c, size_t n)
+{
+	volatile unsigned char *p = (volatile unsigned char *)s;
+	while (n--)
+		*p++ = (unsigned char)c;
+}
+
+#endif /* FUSEPROV_SEC_ELF_V3_H */

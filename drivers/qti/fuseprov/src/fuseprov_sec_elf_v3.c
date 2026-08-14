@@ -1,0 +1,422 @@
+/*
+ * Copyright (c) 2026, Qualcomm Innovation Center, Inc. All rights reserved.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+#include <string.h>
+#include <common/debug.h>
+#include <drivers/qti/crypto/rng.h>
+#include "fuseprov_port.h"
+#include "fuseprov_sec_elf_v3.h"
+#include "fuseprov_mrc_cfg.h"
+#include "fuseprov_sha256.h"
+
+/* Validate SEC.DAT header and extract segment information */
+static fuseprov_error_etype fuseprov_parse_secdat_hdr(
+	const uint8_t *buffer, size_t buffer_len,
+	fuseprov_secdat_hdr_t *hdr,
+	fuseprov_segment_hdr_t **segments,
+	uint32_t *segment_count)
+{
+	const uint8_t *data_end;
+	uint32_t data_size;
+	uint8_t computed_hash[32];
+	const fuseprov_secdat_footer_t *footer;
+
+	if (buffer == NULL || hdr == NULL || segments == NULL ||
+	    segment_count == NULL) {
+		return FUSEPROV_INVALID_ARG;
+	}
+
+	if (buffer_len < sizeof(fuseprov_secdat_hdr_t) +
+			 sizeof(fuseprov_secdat_footer_t)) {
+		return FUSEPROV_SECDAT_SIZE_LEN_MISMATCH;
+	}
+
+	memcpy(hdr, buffer, sizeof(fuseprov_secdat_hdr_t));
+
+	if (hdr->magic1 != FUSEPROV_SECDAT_MAGIC1 ||
+	    hdr->magic2 != FUSEPROV_SECDAT_MAGIC2) {
+		ERROR("Fuseprov: SEC.DAT magic mismatch\n");
+		return FUSEPROV_SECDAT_MAGIC_MISMATCH;
+	}
+
+	if (hdr->revision != FUSEPROV_SECDAT_V3_REV) {
+		ERROR("Fuseprov: SEC.DAT revision %u not supported\n",
+		      hdr->revision);
+		return FUSEPROV_SECDAT_REV_NOT_SUPPORTED;
+	}
+
+	if (hdr->segment_number > 32) {
+		ERROR("Fuseprov: Too many segments (%u)\n", hdr->segment_number);
+		return FUSEPROV_SECDAT_SEGMENT_NUM_NOT_SUPPORTED;
+	}
+
+	data_size = sizeof(fuseprov_secdat_hdr_t) +
+		    (hdr->segment_number * sizeof(fuseprov_segment_hdr_t)) +
+		    hdr->size;
+
+	if (data_size + sizeof(fuseprov_secdat_footer_t) > buffer_len) {
+		ERROR("Fuseprov: Buffer too small for SEC.DAT\n");
+		return FUSEPROV_SECDAT_SIZE_LEN_MISMATCH;
+	}
+
+	/* Verify SHA256 hash */
+	fuseprov_sha256(buffer, data_size, computed_hash);
+	footer = (const fuseprov_secdat_footer_t *)(buffer + data_size);
+
+	if (memcmp(computed_hash, footer->hash, 32) != 0) {
+		ERROR("Fuseprov: SEC.DAT hash mismatch\n");
+		return FUSEPROV_INVALID_HASH;
+	}
+
+	*segments = (fuseprov_segment_hdr_t *)(buffer +
+						sizeof(fuseprov_secdat_hdr_t));
+	*segment_count = hdr->segment_number;
+
+	return FUSEPROV_SUCCESS;
+}
+
+/* Find a specific segment by type */
+static fuseprov_error_etype fuseprov_find_segment(
+	const fuseprov_segment_hdr_t *segments,
+	uint32_t segment_count, uint32_t segment_type,
+	const uint8_t *buffer, size_t buffer_len,
+	const uint8_t **segment_data)
+{
+	uint32_t i;
+
+	if (segments == NULL || segment_data == NULL) {
+		return FUSEPROV_INVALID_ARG;
+	}
+
+	for (i = 0; i < segment_count; i++) {
+		if (segments[i].segment_type == segment_type) {
+			if (segments[i].offset >= buffer_len) {
+				return FUSEPROV_SEGMENT_NOT_FOUND;
+			}
+			*segment_data = buffer + segments[i].offset;
+			return FUSEPROV_SUCCESS;
+		}
+	}
+
+	return FUSEPROV_SEGMENT_NOT_FOUND;
+}
+
+/* Parse fuse list header and extract fuse entries */
+static fuseprov_error_etype fuseprov_parse_qfuse_list_hdr(
+	const uint8_t *segment_data,
+	size_t segment_len,
+	fuseprov_qfuse_list_hdr_t *list_hdr,
+	const fuseprov_qfuse_entry_t **entries,
+	uint32_t *entry_count)
+{
+	if (segment_data == NULL || list_hdr == NULL || entries == NULL ||
+	    entry_count == NULL) {
+		return FUSEPROV_INVALID_ARG;
+	}
+
+	if (segment_len < sizeof(fuseprov_qfuse_list_hdr_t)) {
+		return FUSEPROV_SECDAT_SIZE_LEN_MISMATCH;
+	}
+
+	memcpy(list_hdr, segment_data, sizeof(fuseprov_qfuse_list_hdr_t));
+
+	if (list_hdr->revision != 2 && list_hdr->revision != 3) {
+		ERROR("Fuseprov: Qfuse list revision %u not supported\n",
+		      list_hdr->revision);
+		return FUSEPROV_QFUSE_REV_NOT_SUPPORTED;
+	}
+
+	if (list_hdr->fuse_count == 0 || list_hdr->fuse_count > 1024) {
+		ERROR("Fuseprov: Invalid fuse count %u\n", list_hdr->fuse_count);
+		return FUSEPROV_SECDAT_SIZE_LEN_MISMATCH;
+	}
+
+	if (list_hdr->size !=
+	    list_hdr->fuse_count * sizeof(fuseprov_qfuse_entry_t)) {
+		ERROR("Fuseprov: Fuse list size mismatch\n");
+		return FUSEPROV_SECDAT_SIZE_LEN_MISMATCH;
+	}
+
+	*entries = (const fuseprov_qfuse_entry_t *)(segment_data +
+						    sizeof(fuseprov_qfuse_list_hdr_t));
+	*entry_count = list_hdr->fuse_count;
+
+	return FUSEPROV_SUCCESS;
+}
+
+/* Blow fuses in a specific category via transport abstraction */
+static fuseprov_error_etype fuseprov_blow_fuseregion(
+	const fuseprov_transport_t *t,
+	const fuseprov_qfuse_entry_t *entries,
+	uint32_t entry_count,
+	fuseprov_region_type_t category)
+{
+	uint32_t i;
+	uint32_t fuse_data[2];
+	fuseprov_err_t ret;
+	uint64_t data;
+
+	for (i = 0; i < entry_count; i++) {
+		if (entries[i].region_type != category) {
+			continue;
+		}
+
+		if (entries[i].operation != FUSEPROV_OPERATION_BLOW) {
+			continue;
+		}
+
+		if (entries[i].lsb_val == 0 && entries[i].msb_val == 0) {
+			continue;
+		}
+
+		/* Read current fuse value */
+		ret = fuseprov_row_read(t, entries[i].raw_row_address,
+				       FUSEPROV_ADDR_CORR, fuse_data);
+		if (ret != FUSEPROV_OK) {
+			ERROR("Fuseprov: Failed to read fuse at 0x%x\n",
+			      entries[i].raw_row_address);
+			return FUSEPROV_QFPROM_READ_ERROR;
+		}
+
+		/* Write new fuse value */
+		data = ((uint64_t)entries[i].msb_val << 32) |
+		       entries[i].lsb_val;
+
+		ret = fuseprov_rows_write(t, &entries[i].raw_row_address,
+				&data, 1, NULL);
+		if (ret != FUSEPROV_OK) {
+			ERROR("Fuseprov: Failed to write fuse at 0x%x\n",
+			      entries[i].raw_row_address);
+			return FUSEPROV_QFPROM_WRITE_ERROR;
+		}
+
+		NOTICE("Fuseprov: Blew fuse at 0x%x (LSB=0x%x, MSB=0x%x)\n",
+		       entries[i].raw_row_address, entries[i].lsb_val,
+		       entries[i].msb_val);
+	}
+
+	return FUSEPROV_SUCCESS;
+}
+
+/* Provision SHK (Secondary Hardware Key) with random data */
+static fuseprov_error_etype fuseprov_provision_shk(
+	const fuseprov_transport_t *t,
+	const fuseprov_qfuse_entry_t *entries,
+	uint32_t entry_count)
+{
+	uint8_t random_data[40];
+	uint32_t i;
+	int ret;
+
+	/* Generate random data for SHK (5 fuse rows * 8 bytes) */
+	ret = qti_rng_get_data(random_data, sizeof(random_data));
+	if (ret != 0) {
+		ERROR("Fuseprov: Failed to generate random data for SHK\n");
+		return FUSEPROV_SHK_GENERATION_FAILED;
+	}
+
+	/* Blow SHK fuses with random data */
+	for (i = 0; i < entry_count; i++) {
+		if (entries[i].region_type == FUSEPROV_REGION_TYPE_SEC_HW_KEY &&
+		    entries[i].operation == FUSEPROV_OPERATION_BLOW_RANDOM) {
+			uint64_t data;
+			fuseprov_err_t fret;
+
+			memcpy(&data, &random_data[i * 8], 8);
+
+			fret = fuseprov_rows_write(t,
+					&entries[i].raw_row_address,
+					&data, 1, NULL);
+			if (fret != FUSEPROV_OK) {
+				ERROR("Fuseprov: Failed to write SHK fuse\n");
+				return FUSEPROV_QFPROM_WRITE_ERROR;
+			}
+		}
+	}
+
+	return FUSEPROV_SUCCESS;
+}
+
+/* Provision OEM spare data with random values */
+static fuseprov_error_etype fuseprov_provision_oem_spare(
+	const fuseprov_transport_t *t,
+	const fuseprov_qfuse_entry_t *entries,
+	uint32_t entry_count)
+{
+	uint8_t random_data[40];
+	uint32_t i;
+	int ret;
+
+	ret = qti_rng_get_data(random_data, sizeof(random_data));
+	if (ret != 0) {
+		ERROR("Fuseprov: Failed to generate random data for OEM spare\n");
+		return FUSEPROV_OEM_SPARE_RAND_GEN_FAILED;
+	}
+
+	for (i = 0; i < entry_count; i++) {
+		if (entries[i].region_type == FUSEPROV_REGION_TYPE_OEM_SPARE &&
+		    entries[i].operation == FUSEPROV_OPERATION_BLOW_RANDOM) {
+			uint64_t data;
+			fuseprov_err_t fret;
+
+			memcpy(&data, &random_data[i * 8], 8);
+
+			fret = fuseprov_rows_write(t,
+					&entries[i].raw_row_address,
+					&data, 1, NULL);
+			if (fret != FUSEPROV_OK) {
+				ERROR("Fuseprov: Failed to write OEM spare fuse\n");
+				return FUSEPROV_QFPROM_WRITE_ERROR;
+			}
+		}
+	}
+
+	return FUSEPROV_SUCCESS;
+}
+
+/* Main entry point: parse and blow fuses from SEC.DAT v3
+ * This is the portable layer entry point that takes a transport contract
+ */
+fuseprov_error_etype fuseprov_blow_fuses_sec_elf_v3(
+	const fuseprov_transport_t *t,
+	uint8_t *buf,
+	uint32_t len)
+{
+	fuseprov_secdat_hdr_t hdr;
+	fuseprov_segment_hdr_t *segments;
+	uint32_t segment_count;
+	const uint8_t *efuse_segment;
+	const uint8_t *enckey_segment;
+	fuseprov_qfuse_list_hdr_t list_hdr;
+	const fuseprov_qfuse_entry_t *entries;
+	uint32_t entry_count;
+	fuseprov_error_etype ret;
+
+	if (buf == NULL || len == 0 || t == NULL) {
+		return FUSEPROV_INVALID_ARG;
+	}
+
+	NOTICE("Fuseprov: Starting fuse provisioning\n");
+
+	/* Parse SEC.DAT header */
+	ret = fuseprov_parse_secdat_hdr(buf, len, &hdr,
+				       &segments, &segment_count);
+	if (ret != FUSEPROV_SUCCESS) {
+		ERROR("Fuseprov: Failed to parse SEC.DAT header\n");
+		return ret;
+	}
+
+	/* Process EFUSE segment */
+	ret = fuseprov_find_segment(segments, segment_count,
+				   FUSEPROV_SEGMENT_TYPE_EFUSE, buf,
+				   len, &efuse_segment);
+	if (ret == FUSEPROV_SUCCESS) {
+		ret = fuseprov_parse_qfuse_list_hdr(efuse_segment, len,
+						   &list_hdr, &entries,
+						   &entry_count);
+		if (ret != FUSEPROV_SUCCESS) {
+			ERROR("Fuseprov: Failed to parse EFUSE segment\n");
+			return ret;
+		}
+
+		/* Blow fuses in order: GENERAL -> SHK -> OEM_PRODUCT_SEED ->
+		 * OEM_SPARE -> OEM_CONFIG -> SECBOOT -> FEC_EN -> READ_PERM ->
+		 * WRITE_PERM (last, locks everything)
+		 */
+		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
+					      FUSEPROV_REGION_TYPE_GENERAL);
+		if (ret != FUSEPROV_SUCCESS) {
+			return ret;
+		}
+
+		ret = fuseprov_provision_shk(t, entries, entry_count);
+		if (ret != FUSEPROV_SUCCESS) {
+			return ret;
+		}
+
+		ret = fuseprov_provision_oem_spare(t, entries, entry_count);
+		if (ret != FUSEPROV_SUCCESS) {
+			return ret;
+		}
+
+		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
+					      FUSEPROV_REGION_TYPE_OEM_CONFIG);
+		if (ret != FUSEPROV_SUCCESS) {
+			return ret;
+		}
+
+		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
+					      FUSEPROV_REGION_TYPE_OEM_SEC_BOOT);
+		if (ret != FUSEPROV_SUCCESS) {
+			return ret;
+		}
+
+		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
+					      FUSEPROV_REGION_TYPE_FEC_EN);
+		if (ret != FUSEPROV_SUCCESS) {
+			return ret;
+		}
+
+		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
+					      FUSEPROV_REGION_TYPE_READ_PERM);
+		if (ret != FUSEPROV_SUCCESS) {
+			return ret;
+		}
+
+		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
+					      FUSEPROV_REGION_TYPE_WRITE_PERM);
+		if (ret != FUSEPROV_SUCCESS) {
+			return ret;
+		}
+	}
+
+	/* Process ENCKEY segment (boot image encryption keys) */
+	ret = fuseprov_find_segment(segments, segment_count,
+				   FUSEPROV_SEGMENT_TYPE_ENCKEY, buf,
+				   len, &enckey_segment);
+	if (ret == FUSEPROV_SUCCESS) {
+		ret = fuseprov_parse_qfuse_list_hdr(enckey_segment, len,
+						   &list_hdr, &entries,
+						   &entry_count);
+		if (ret != FUSEPROV_SUCCESS) {
+			ERROR("Fuseprov: Failed to parse ENCKEY segment\n");
+			return ret;
+		}
+
+		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
+					      FUSEPROV_REGION_TYPE_GENERAL);
+		if (ret != FUSEPROV_SUCCESS) {
+			return ret;
+		}
+
+		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
+					      FUSEPROV_REGION_TYPE_OEM_CONFIG);
+		if (ret != FUSEPROV_SUCCESS) {
+			return ret;
+		}
+
+		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
+					      FUSEPROV_REGION_TYPE_FEC_EN);
+		if (ret != FUSEPROV_SUCCESS) {
+			return ret;
+		}
+
+		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
+					      FUSEPROV_REGION_TYPE_READ_PERM);
+		if (ret != FUSEPROV_SUCCESS) {
+			return ret;
+		}
+
+		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
+					      FUSEPROV_REGION_TYPE_WRITE_PERM);
+		if (ret != FUSEPROV_SUCCESS) {
+			return ret;
+		}
+	}
+
+	NOTICE("Fuseprov: Fuse provisioning complete\n");
+	return FUSEPROV_SUCCESS;
+}
