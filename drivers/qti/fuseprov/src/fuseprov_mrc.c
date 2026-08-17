@@ -5,8 +5,8 @@
  */
 
 #include <common/debug.h>
-#include "fuseprov_port.h"
-#include "fuseprov_mrc_cfg.h"
+#include <drivers/qti/fuseprov/fuseprov_port.h>
+#include <drivers/qti/fuseprov/fuseprov_mrc_cfg.h>
 
 /* MRC activation/revocation list update
  * Stub implementation - MRC checks are skipped

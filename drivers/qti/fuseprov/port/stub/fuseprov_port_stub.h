@@ -8,7 +8,7 @@
 #define FUSEPROV_PORT_STUB_H
 
 #include <stdint.h>
-#include "fuseprov_transport.h"
+#include <drivers/qti/fuseprov/fuseprov_transport.h>
 
 /* Get the stub transport instance for off-target testing */
 const fuseprov_transport_t *fuseprov_port_stub_get(void);

@@ -7,7 +7,7 @@
 #ifndef FUSEPROV_PORT_TME_H
 #define FUSEPROV_PORT_TME_H
 
-#include "fuseprov_transport.h"
+#include <drivers/qti/fuseprov/fuseprov_transport.h>
 
 /* Get the TME transport instance for Wildcat/Nord platforms */
 const fuseprov_transport_t *fuseprov_port_tme_get(void);

@@ -6,7 +6,7 @@
 
 #include <common/debug.h>
 #include <drivers/qti/tme/tme_fuse.h>
-#include "fuseprov_port_tme.h"
+#include <drivers/qti/fuseprov/fuseprov_port_tme.h>
 
 /* TME transport: read fuse row via TME COM */
 static fuseprov_err_t tme_read_row(void *ctx, uint32_t addr,

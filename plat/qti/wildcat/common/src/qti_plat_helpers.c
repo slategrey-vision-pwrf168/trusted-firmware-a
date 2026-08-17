@@ -57,8 +57,8 @@ unsigned int find_cluster_id(void)
  * This function provides the cluster id to which the provided
  * mpidr belongs. Returns cluster id by reading aff1 bits in mpidr.
  * This function overrides the find_cluster_id definition in common
- * folder. This is because the Affinity bits depicting cluster id in
- * MPIDR for Hamoa are different compared to previous chipsets
+ * folder. This is because the affinity bits depicting cluster id in
+ * MPIDR for this platform family differ from earlier chipsets.
  */
 unsigned int find_cluster_id_by_mpidr(u_register_t mpidr)
 {

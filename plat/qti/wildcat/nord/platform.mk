@@ -137,7 +137,8 @@ QTI_BL31_SOURCES	:=	$(QTI_PLAT_PATH)/common/src/$(ARCH)/qti_helpers.S	\
 
 # Ensure Widevine is not being used
 ifeq ($(CROS_WIDEVINE_SMC), 0)
-QTI_BL31_SOURCES		+=	$(QTI_PLAT_PATH)/common/src/qti_oem_svc.c
+QTI_BL31_SOURCES		+=	$(QTI_PLAT_PATH)/common/src/qti_oem_svc.c	\
+					$(QTI_PLAT_PATH)/common/src/qti_fuseprov_platform.c
 endif
 
 PLAT_INCLUDES		:=	-Iinclude/plat/common/					\

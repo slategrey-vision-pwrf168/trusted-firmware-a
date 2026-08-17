@@ -6,7 +6,7 @@
 
 #include <common/debug.h>
 #include <string.h>
-#include "tme_fuse.h"
+#include <drivers/qti/tme/tme_fuse.h>
 
 /* TME message tags from TmeMessagesTags.h */
 #define TME_MSG_CBOR_TAG_FUSE_READ 301

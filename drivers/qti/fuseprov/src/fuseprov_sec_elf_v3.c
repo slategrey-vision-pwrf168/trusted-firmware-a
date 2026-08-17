@@ -7,10 +7,10 @@
 #include <string.h>
 #include <common/debug.h>
 #include <drivers/qti/crypto/rng.h>
-#include "fuseprov_port.h"
-#include "fuseprov_sec_elf_v3.h"
-#include "fuseprov_mrc_cfg.h"
-#include "fuseprov_sha256.h"
+#include <drivers/qti/fuseprov/fuseprov_port.h>
+#include <drivers/qti/fuseprov/fuseprov_sec_elf_v3.h>
+#include <drivers/qti/fuseprov/fuseprov_mrc_cfg.h>
+#include "../fuseprov_sha256.h"
 
 /* Validate SEC.DAT header and extract segment information */
 static fuseprov_error_etype fuseprov_parse_secdat_hdr(
@@ -148,11 +148,51 @@ static fuseprov_error_etype fuseprov_parse_qfuse_list_hdr(
 }
 
 /* Blow fuses in a specific category via transport abstraction */
+/* Map a SEC.DAT region type to its blow category
+ *
+ * Regions without an explicit category fall back to GENERAL so that region
+ * types such as OEM_PK_HASH, ANTI_ROLLBACK, IMAGE_ENCR_KEY and MRC_2_0 are
+ * still blown, as part of the GENERAL pass.
+ */
+fuseprov_category_t fuseprov_get_category_for_region(uint32_t region_type)
+{
+	switch (region_type) {
+	case FUSEPROV_REGION_TYPE_OEM_SEC_BOOT:
+		return FUSEPROV_CATEGORY_SECBOOT;
+	case FUSEPROV_REGION_TYPE_SEC_HW_KEY:
+		return FUSEPROV_CATEGORY_SHK;
+	case FUSEPROV_REGION_TYPE_OEM_CONFIG:
+		return FUSEPROV_CATEGORY_OEM_CONFIG;
+	case FUSEPROV_REGION_TYPE_READ_PERM:
+		return FUSEPROV_CATEGORY_READ_PERM;
+	case FUSEPROV_REGION_TYPE_WRITE_PERM:
+		return FUSEPROV_CATEGORY_WRITE_PERM;
+	case FUSEPROV_REGION_TYPE_FEC_EN:
+		return FUSEPROV_CATEGORY_FEC_EN;
+	case FUSEPROV_REGION_TYPE_OEM_PRODUCT_SEED:
+		return FUSEPROV_CATEGORY_OEM_PRODUCT_SEED;
+	/*
+	 * OEM_SPARE keeps its own category rather than falling under GENERAL so
+	 * that random-value blowing is handled separately.
+	 */
+	case FUSEPROV_REGION_TYPE_OEM_SPARE:
+		return FUSEPROV_CATEGORY_OEM_SPARE_RAND;
+	default:
+		return FUSEPROV_CATEGORY_GENERAL;
+	}
+}
+
+bool fuseprov_is_region_in_category(fuseprov_category_t category,
+				    uint32_t region_type)
+{
+	return category == fuseprov_get_category_for_region(region_type);
+}
+
 static fuseprov_error_etype fuseprov_blow_fuseregion(
 	const fuseprov_transport_t *t,
 	const fuseprov_qfuse_entry_t *entries,
 	uint32_t entry_count,
-	fuseprov_region_type_t category)
+	fuseprov_category_t category)
 {
 	uint32_t i;
 	uint32_t fuse_data[2];
@@ -160,7 +200,8 @@ static fuseprov_error_etype fuseprov_blow_fuseregion(
 	uint64_t data;
 
 	for (i = 0; i < entry_count; i++) {
-		if (entries[i].region_type != category) {
+		if (!fuseprov_is_region_in_category(category,
+						    entries[i].region_type)) {
 			continue;
 		}
 
@@ -327,7 +368,7 @@ fuseprov_error_etype fuseprov_blow_fuses_sec_elf_v3(
 		 * WRITE_PERM (last, locks everything)
 		 */
 		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_REGION_TYPE_GENERAL);
+					      FUSEPROV_CATEGORY_GENERAL);
 		if (ret != FUSEPROV_SUCCESS) {
 			return ret;
 		}
@@ -343,31 +384,31 @@ fuseprov_error_etype fuseprov_blow_fuses_sec_elf_v3(
 		}
 
 		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_REGION_TYPE_OEM_CONFIG);
+					      FUSEPROV_CATEGORY_OEM_CONFIG);
 		if (ret != FUSEPROV_SUCCESS) {
 			return ret;
 		}
 
 		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_REGION_TYPE_OEM_SEC_BOOT);
+					      FUSEPROV_CATEGORY_SECBOOT);
 		if (ret != FUSEPROV_SUCCESS) {
 			return ret;
 		}
 
 		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_REGION_TYPE_FEC_EN);
+					      FUSEPROV_CATEGORY_FEC_EN);
 		if (ret != FUSEPROV_SUCCESS) {
 			return ret;
 		}
 
 		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_REGION_TYPE_READ_PERM);
+					      FUSEPROV_CATEGORY_READ_PERM);
 		if (ret != FUSEPROV_SUCCESS) {
 			return ret;
 		}
 
 		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_REGION_TYPE_WRITE_PERM);
+					      FUSEPROV_CATEGORY_WRITE_PERM);
 		if (ret != FUSEPROV_SUCCESS) {
 			return ret;
 		}
@@ -387,31 +428,31 @@ fuseprov_error_etype fuseprov_blow_fuses_sec_elf_v3(
 		}
 
 		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_REGION_TYPE_GENERAL);
+					      FUSEPROV_CATEGORY_GENERAL);
 		if (ret != FUSEPROV_SUCCESS) {
 			return ret;
 		}
 
 		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_REGION_TYPE_OEM_CONFIG);
+					      FUSEPROV_CATEGORY_OEM_CONFIG);
 		if (ret != FUSEPROV_SUCCESS) {
 			return ret;
 		}
 
 		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_REGION_TYPE_FEC_EN);
+					      FUSEPROV_CATEGORY_FEC_EN);
 		if (ret != FUSEPROV_SUCCESS) {
 			return ret;
 		}
 
 		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_REGION_TYPE_READ_PERM);
+					      FUSEPROV_CATEGORY_READ_PERM);
 		if (ret != FUSEPROV_SUCCESS) {
 			return ret;
 		}
 
 		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_REGION_TYPE_WRITE_PERM);
+					      FUSEPROV_CATEGORY_WRITE_PERM);
 		if (ret != FUSEPROV_SUCCESS) {
 			return ret;
 		}

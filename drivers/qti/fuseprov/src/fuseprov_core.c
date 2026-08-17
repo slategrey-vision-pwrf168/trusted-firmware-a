@@ -5,7 +5,7 @@
  */
 
 #include <common/debug.h>
-#include "fuseprov_port.h"
+#include <drivers/qti/fuseprov/fuseprov_port.h>
 
 /* Transport wrapper: read a single fuse row
  * Maps transport errors to parser-level errors

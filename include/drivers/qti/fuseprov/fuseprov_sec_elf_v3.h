@@ -7,6 +7,7 @@
 #ifndef FUSEPROV_SEC_ELF_V3_H
 #define FUSEPROV_SEC_ELF_V3_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /* High-level parser error codes (mirrors TZ fuseprov_error_etype) */
@@ -99,18 +100,40 @@ typedef enum {
 	FUSEPROV_OPERATION_BLOW_RANDOM = 0x2,
 } fuseprov_operation_type_t;
 
-/* Fuse provisioning category */
+/* Fuse provisioning category
+ *
+ * Categories group one or more region types for ordered blowing. Values mirror
+ * fuseprov_v3_category_etype in the reference implementation. Any region type
+ * without an explicit category falls back to GENERAL, so regions such as
+ * OEM_PK_HASH, ANTI_ROLLBACK, IMAGE_ENCR_KEY and MRC_2_0 are blown as part of
+ * the GENERAL pass.
+ */
 typedef enum {
-	FUSEPROV_CATEGORY_GENERAL = 0,
-	FUSEPROV_CATEGORY_SHK = 1,
-	FUSEPROV_CATEGORY_OEM_PRODUCT_SEED = 2,
-	FUSEPROV_CATEGORY_OEM_SPARE = 3,
-	FUSEPROV_CATEGORY_OEM_CONFIG = 4,
-	FUSEPROV_CATEGORY_SECBOOT = 5,
-	FUSEPROV_CATEGORY_FEC_EN = 6,
-	FUSEPROV_CATEGORY_READ_PERM = 7,
-	FUSEPROV_CATEGORY_WRITE_PERM = 8,
+	FUSEPROV_CATEGORY_GENERAL = 0x0,
+	FUSEPROV_CATEGORY_SECBOOT = 0x1,
+	FUSEPROV_CATEGORY_SHK = 0x2,
+	FUSEPROV_CATEGORY_OEM_CONFIG = 0x3,
+	FUSEPROV_CATEGORY_READ_PERM = 0x4,
+	FUSEPROV_CATEGORY_WRITE_PERM = 0x5,
+	FUSEPROV_CATEGORY_FEC_EN = 0x6,
+	FUSEPROV_CATEGORY_OEM_SPARE_RAND = 0x7,
+	FUSEPROV_CATEGORY_OEM_PRODUCT_SEED = 0x8,
+	FUSEPROV_CATEGORY_ANTI_ROLLBACK = 0x9,
 } fuseprov_category_t;
+
+/* Map a SEC.DAT region type to its blow category
+ * @region_type: region type field from a SEC.DAT fuse entry
+ * @return: category the region belongs to; GENERAL for unlisted regions
+ */
+fuseprov_category_t fuseprov_get_category_for_region(uint32_t region_type);
+
+/* Check whether a region type belongs to a category
+ * @category: category to test against
+ * @region_type: region type field from a SEC.DAT fuse entry
+ * @return: true if region_type maps to category
+ */
+bool fuseprov_is_region_in_category(fuseprov_category_t category,
+				    uint32_t region_type);
 
 /* SEC.DAT magic numbers and constants */
 #define FUSEPROV_SECDAT_MAGIC1           0x3B7251CA
