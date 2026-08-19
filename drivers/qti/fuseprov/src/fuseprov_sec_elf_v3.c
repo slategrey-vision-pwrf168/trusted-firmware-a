@@ -9,7 +9,6 @@
 #include <drivers/qti/crypto/rng.h>
 #include <drivers/qti/fuseprov/fuseprov_port.h>
 #include <drivers/qti/fuseprov/fuseprov_sec_elf_v3.h>
-#include <drivers/qti/fuseprov/fuseprov_mrc_cfg.h>
 #include "../fuseprov_sha256.h"
 
 /* Validate SEC.DAT header and extract segment information */

@@ -50,14 +50,4 @@ fuseprov_error_etype fuseprov_blow_fuses_sec_elf_v3(
 	uint8_t *buf,
 	uint32_t len);
 
-/* MRC activation/revocation list update - implemented in fuseprov_mrc.c
- * @t: transport contract pointer
- * @mrc_activation_list: MRC activation list value
- * @mrc_revocation_list: MRC revocation list value
- * @return: FUSEPROV_OK on success, error code on failure
- */
-fuseprov_err_t fuseprov_mrc_update(const fuseprov_transport_t *t,
-				   uint32_t mrc_activation_list,
-				   uint32_t mrc_revocation_list);
-
 #endif /* FUSEPROV_PORT_H */
