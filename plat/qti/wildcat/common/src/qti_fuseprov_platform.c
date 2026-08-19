@@ -5,8 +5,12 @@
  */
 
 #include <common/debug.h>
+#include <lib/xlat_tables/xlat_tables_v2.h>
+#include <qti_plat.h>
 #include <drivers/qti/fuseprov/fuseprov.h>
+#include <drivers/qti/fuseprov/fuseprov_mrc_cfg.h>
 #include <drivers/qti/fuseprov/fuseprov_port_tme.h>
+#include <drivers/qti/tme/tme_fuse.h>
 
 /* Blow fuses and trigger reset
  *
@@ -51,4 +55,89 @@ int qti_fuseprov_blow_fuses_and_reset(const uint8_t *secdat_buffer,
 	NOTICE("Fuseprov: Fuse provisioning complete, reset skipped (not required for this build)\n");
 
 	return 0;
+}
+
+/* Ask TME where it authenticated sec.elf during boot, then parse and blow
+ * fuses from that buffer.
+ *
+ * This is the TF-A counterpart of the Zephyr fuseprov_init() boot hook: it
+ * performs the same "self-locate the buffer via TME, then provision" work.
+ * Unlike the Zephyr version it is not registered against any boot-time init
+ * framework -- TF-A has none -- so it is exposed here for a caller to invoke
+ * once one is chosen.
+ *
+ * @return: 0 if provisioning ran (successfully, with nothing to do, or
+ *          already locked); -1 if the sec.elf region could not be located
+ *          or mapped; the fuseprov_error_etype value on a fuse-blow failure
+ */
+int qti_fuseprov_init(void)
+{
+	fuseprov_error_etype ret;
+	const fuseprov_transport_t *transport;
+	uint32_t swid = SEC_ELF_SS_SWID;
+	uint32_t swid_count = 1;
+	tmePilRegion_t region = { 0 };
+	uint32_t region_count = 1;
+	uint32_t secelf_len;
+	uintptr_t secelf_pa;
+	int tme_ret;
+
+	tme_ret = TmeGetPilImageRegions(&swid_count, &swid, &region_count,
+					&region);
+	if (tme_ret != 0 || region_count == 0) {
+		NOTICE("Fuseprov: sec.elf not authenticated by TME, skipping\n");
+		return 0;
+	}
+
+	if (region.endAddr <= region.startAddr) {
+		ERROR("Fuseprov: TME returned invalid sec.elf region\n");
+		return -1;
+	}
+
+	secelf_pa = (uintptr_t)region.startAddr;
+	secelf_len = region.endAddr - region.startAddr;
+
+	if (secelf_pa == 0 || secelf_len == 0 ||
+	    secelf_len > FUSEPROV_SECDAT_BUFFER_SIZE) {
+		ERROR("Fuseprov: sec.elf region out of bounds (0x%lx, %u bytes)\n",
+		      (unsigned long)secelf_pa, secelf_len);
+		return -1;
+	}
+
+	/* region.startAddr is a DDR physical address handed back by TME; it
+	 * is not part of any static MMU region, so map it before use.
+	 */
+	if (qti_mmap_add_dynamic_region(secelf_pa, secelf_len,
+					MT_RO_DATA | MT_SECURE) != 0) {
+		ERROR("Fuseprov: failed to map sec.elf buffer\n");
+		return -1;
+	}
+
+	transport = fuseprov_port_tme_get();
+	ret = fuseprov_blow_fuses_sec_elf_v3(transport, (uint8_t *)secelf_pa,
+					     secelf_len);
+
+	switch (ret) {
+	case FUSEPROV_SUCCESS:
+		NOTICE("Fuseprov: fuse provisioning complete\n");
+		break;
+	case FUSEPROV_SECDAT_LOCK_BLOWN:
+		NOTICE("Fuseprov: fuse provisioning skipped, write permission disabled\n");
+		break;
+	case FUSEPROV_SECDAT_MAGIC_MISMATCH:
+	case FUSEPROV_SECDAT_DEFAULT_NOFUSES:
+		NOTICE("Fuseprov: no fuses to blow\n");
+		break;
+	default:
+		ERROR("Fuseprov: fuse blow failed with error %d\n", ret);
+		break;
+	}
+
+	if (qti_mmap_remove_dynamic_region(secelf_pa, secelf_len) != 0)
+		ERROR("Fuseprov: failed to unmap sec.elf buffer\n");
+
+	if (ret == FUSEPROV_SUCCESS || ret == FUSEPROV_SECDAT_LOCK_BLOWN)
+		return 0;
+
+	return (int)ret;
 }

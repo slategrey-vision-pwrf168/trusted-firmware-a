@@ -24,7 +24,7 @@ static fuseprov_err_t tme_read_row(void *ctx, uint32_t addr,
 	(void)ctx;
 
 	ret = TmeFuseRead((TMEQFPROMAddrSpace_t)space, addr, out, &qfprom_status);
-	if (ret != 0 || qfprom_status != QFPROM_NO_ERR) {
+	if (ret != E_SUCCESS || qfprom_status != QFPROM_NO_ERR) {
 		ERROR("Fuseprov: TME fuse read failed at addr 0x%x (ret=%d, qfprom_status=%u)\n",
 		      addr, ret, qfprom_status);
 		return FUSEPROV_ERR_TRANSPORT;
@@ -58,7 +58,7 @@ static fuseprov_err_t tme_write_rows(void *ctx, const uint32_t addr[],
 	}
 
 	ret = TmeFuseWriteMultiple(fuses, (size_t)count, &qfprom_status);
-	if (ret != 0 || qfprom_status != QFPROM_NO_ERR) {
+	if (ret != E_SUCCESS || qfprom_status != QFPROM_NO_ERR) {
 		ERROR("Fuseprov: TME fuse write failed (ret=%d, qfprom_status=%u)\n",
 		      ret, qfprom_status);
 		(void)addr_err; /* TmeFuseWriteMultiple() does not report the failing address */

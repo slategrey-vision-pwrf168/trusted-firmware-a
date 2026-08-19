@@ -41,8 +41,20 @@ typedef enum {
 	TME_WRITE_CONFIG_REGISTER_MAX = 0xFF,
 } tmeConfigRegisterId_e;
 
-/* QFPROM operation completed successfully. */
-#define QFPROM_NO_ERR 0
+/* QFPROM operation completed successfully (QFPROM_ERR_CODE in qsee_fuse.h). */
+#define QFPROM_NO_ERR		0
+/* Last entry of QFPROM_ERR_CODE in qsee_fuse.h; used when the real QFPROM
+ * status of a failure is not known.
+ */
+#define QFPROM_ERR_UNKNOWN	0x7FFFFFFF
+
+/* Generic status codes returned by TmeFuseRead()/TmeFuseWriteMultiple()/
+ * TmeWriteConfigRegister() (IxErrnoType in IxErrno.h): 0 on success,
+ * non-zero on failure. Declared locally since IxErrno.h belongs to the
+ * TME COM/Interface library and is not part of this driver.
+ */
+#define E_SUCCESS		0
+#define E_NOT_SUPPORTED		4
 
 /* Read a single fuse row via TME.
  * @addrType: raw or corrected address space
@@ -69,5 +81,27 @@ int TmeFuseWriteMultiple(TMEFuse_t *fuseArray, size_t fuseArrayLen,
  * @return: 0 on success, non-zero on failure
  */
 int TmeWriteConfigRegister(tmeConfigRegisterId_e registerId, uint32_t value);
+
+/* PIL (Peripheral Image Loader) software ID for the authenticated sec.elf
+ * image, as recorded by TME during boot.
+ */
+#define SEC_ELF_SS_SWID		0x002bU
+
+/* DDR region of a PIL image that TME authenticated during boot. */
+typedef struct {
+	uint32_t startAddr;
+	uint32_t endAddr;
+} tmePilRegion_t;
+
+/* Ask TME for the DDR region(s) of already-authenticated PIL image(s).
+ * @swIdCount: in: number of entries in swIds; out: unused
+ * @swIds: input array of software IDs to query (e.g. SEC_ELF_SS_SWID)
+ * @regionListCount: in: capacity of regionList; out: number of entries filled
+ * @regionList: output array of DDR regions, one per matched swId
+ * @return: 0 on success, non-zero on failure
+ */
+int TmeGetPilImageRegions(uint32_t *const swIdCount, uint32_t *const swIds,
+			  uint32_t *const regionListCount,
+			  tmePilRegion_t *const regionList);
 
 #endif /* DRIVERS_QTI_TME_FUSE_H */

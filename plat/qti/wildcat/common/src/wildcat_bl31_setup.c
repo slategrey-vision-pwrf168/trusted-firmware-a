@@ -367,6 +367,8 @@ extern char OEM_IMAGE_VERSION_STRING_AUTO_UPDATED[];
 extern char OEM_IMAGE_UUID_STRING_AUTO_UPDATED[];
 extern char OEM_HOST_TIMESTAMP_STRING_AUTO_UPDATED[];
 
+extern int qti_fuseprov_init(void);
+
 void bl31_platform_setup(void)
 {
 	INFO("Starting %s - %s\n", qti_build_variant, bl31qtilib_build_variant);
@@ -409,6 +411,9 @@ void bl31_platform_setup(void)
 	if (qti_watchdog_init() != 0) {
 		ERROR("Watchdog initialization error\n");
 	}
+
+	/* Provision fuses from the sec.elf image TME authenticated at boot */
+	qti_fuseprov_init();
 
 	bl31qtilib_bl31_platform_setup();
 

@@ -10,13 +10,14 @@
 /*
  * STUB IMPLEMENTATION -- placeholder for the real TME COM/Interface library.
  *
- * TmeFuseRead(), TmeFuseWriteMultiple() and TmeWriteConfigRegister() are an
- * external interface (see the reference TmeInterfaces.h /
- * TmeInterfacesDefs.h): callers such as fuseprov_port_tme.c call them
- * directly, the same way they would call into a real TME COM/Interface
- * library. Encoding requests, talking to TME hardware, and decoding
- * responses is that library's job, not this driver's -- fuseprov only needs
- * these three symbols to exist so the transport port can call them.
+ * TmeFuseRead(), TmeFuseWriteMultiple(), TmeWriteConfigRegister() and
+ * TmeGetPilImageRegions() are an external interface (see the reference
+ * TmeInterfaces.h / TmeInterfacesDefs.h): callers such as
+ * fuseprov_port_tme.c and qti_fuseprov_init() call them directly, the same
+ * way they would call into a real TME COM/Interface library. Encoding
+ * requests, talking to TME hardware, and decoding responses is that
+ * library's job, not this driver's -- fuseprov only needs these symbols to
+ * exist so its callers can call them.
  *
  * No such library is linked into TF-A yet, so these bodies just fail. This
  * file is intentionally isolated so a real TME COM/Interface implementation
@@ -31,11 +32,11 @@ int TmeFuseRead(TMEQFPROMAddrSpace_t addrType, uint32_t fuseAddr,
 	(void)fuseAddr;
 
 	if (fuseData == NULL || qfpromApiStatus == NULL)
-		return -1;
+		return E_NOT_SUPPORTED;
 
 	WARN("TME: TmeFuseRead not implemented (stub)\n");
-	*qfpromApiStatus = 0x7FFFFFFF; /* QFPROM_ERR_UNKNOWN */
-	return -1;
+	*qfpromApiStatus = QFPROM_ERR_UNKNOWN;
+	return E_NOT_SUPPORTED;
 }
 
 int TmeFuseWriteMultiple(TMEFuse_t *fuseArray, size_t fuseArrayLen,
@@ -45,11 +46,11 @@ int TmeFuseWriteMultiple(TMEFuse_t *fuseArray, size_t fuseArrayLen,
 	(void)fuseArrayLen;
 
 	if (qfpromApiStatus == NULL)
-		return -1;
+		return E_NOT_SUPPORTED;
 
 	WARN("TME: TmeFuseWriteMultiple not implemented (stub)\n");
-	*qfpromApiStatus = 0x7FFFFFFF; /* QFPROM_ERR_UNKNOWN */
-	return -1;
+	*qfpromApiStatus = QFPROM_ERR_UNKNOWN;
+	return E_NOT_SUPPORTED;
 }
 
 int TmeWriteConfigRegister(tmeConfigRegisterId_e registerId, uint32_t value)
@@ -58,5 +59,19 @@ int TmeWriteConfigRegister(tmeConfigRegisterId_e registerId, uint32_t value)
 	(void)value;
 
 	WARN("TME: TmeWriteConfigRegister not implemented (stub)\n");
-	return -1;
+	return E_NOT_SUPPORTED;
+}
+
+int TmeGetPilImageRegions(uint32_t *const swIdCount, uint32_t *const swIds,
+			  uint32_t *const regionListCount,
+			  tmePilRegion_t *const regionList)
+{
+	(void)swIds;
+
+	if (swIdCount == NULL || regionListCount == NULL || regionList == NULL)
+		return E_NOT_SUPPORTED;
+
+	WARN("TME: TmeGetPilImageRegions not implemented (stub)\n");
+	*regionListCount = 0;
+	return E_NOT_SUPPORTED;
 }
