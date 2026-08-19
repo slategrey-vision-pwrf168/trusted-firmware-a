@@ -1,193 +1,62 @@
 /*
- * Copyright (c) 2026, Qualcomm Technologies, Inc. All rights reserved.
+ * Copyright (c) 2026, Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <common/debug.h>
-#include <string.h>
 #include <drivers/qti/tme/tme_fuse.h>
 
-/* TME message tags from TmeMessagesTags.h */
-#define TME_MSG_CBOR_TAG_FUSE_READ 301
-#define TME_MSG_CBOR_TAG_FUSE_WRITE_MULTIPLE 316
-#define TME_MSG_CBOR_TAG_WRITE_CONFIG_REGISTER 334
+/*
+ * STUB IMPLEMENTATION -- placeholder for the real TME COM/Interface library.
+ *
+ * TmeFuseRead(), TmeFuseWriteMultiple() and TmeWriteConfigRegister() are an
+ * external interface (see the reference TmeInterfaces.h /
+ * TmeInterfacesDefs.h): callers such as fuseprov_port_tme.c call them
+ * directly, the same way they would call into a real TME COM/Interface
+ * library. Encoding requests, talking to TME hardware, and decoding
+ * responses is that library's job, not this driver's -- fuseprov only needs
+ * these three symbols to exist so the transport port can call them.
+ *
+ * No such library is linked into TF-A yet, so these bodies just fail. This
+ * file is intentionally isolated so a real TME COM/Interface implementation
+ * can replace it later without touching fuseprov_port_tme.c or any
+ * fuseprov logic above it.
+ */
 
-/* Error codes */
-#define E_SUCCESS 0
-#define E_FAILURE -1
-
-/* Forward declarations for TME COM interface */
-extern int TmeForwardRequest(void *reqBuf, size_t reqSize,
-			     void *rspBuf, size_t *rspBufSize);
-
-/* TME fuse read request structure */
-typedef struct {
-	uint32_t addr_space;  /* 0 = raw, 1 = corrected */
-	uint32_t addr;
-} __attribute__((packed)) tme_fuse_read_req_t;
-
-/* TME fuse read response structure */
-typedef struct {
-	uint32_t status;
-	uint32_t data[2];  /* LSB and MSB */
-} __attribute__((packed)) tme_fuse_read_rsp_t;
-
-/* TME fuse write entry */
-typedef struct {
-	uint32_t addr;
-	uint32_t data[2];  /* LSB and MSB */
-} __attribute__((packed)) tme_fuse_write_entry_t;
-
-/* TME fuse write multiple request structure */
-typedef struct {
-	uint32_t count;
-	tme_fuse_write_entry_t fuses[64];  /* Max 64 fuses per request */
-} __attribute__((packed)) tme_fuse_write_multiple_req_t;
-
-/* TME fuse write multiple response structure */
-typedef struct {
-	uint32_t status;
-	uint32_t failed_index;  /* Index of first failed fuse, or 0xFFFFFFFF if all succeeded */
-} __attribute__((packed)) tme_fuse_write_multiple_rsp_t;
-
-/* TME write config register request structure */
-typedef struct {
-	uint32_t reg_id;
-	uint32_t value;
-} __attribute__((packed)) tme_write_config_register_req_t;
-
-/* TME write config register response structure */
-typedef struct {
-	uint32_t status;
-} __attribute__((packed)) tme_write_config_register_rsp_t;
-
-/* TME fuse read operation */
-int tme_fuse_read(tme_qfprom_addr_space_t space, uint32_t addr, uint32_t out[2])
+int TmeFuseRead(TMEQFPROMAddrSpace_t addrType, uint32_t fuseAddr,
+		uint32_t *const fuseData, uint32_t *const qfpromApiStatus)
 {
-	tme_fuse_read_req_t req;
-	tme_fuse_read_rsp_t rsp;
-	size_t rsp_size = sizeof(rsp);
-	int ret;
+	(void)addrType;
+	(void)fuseAddr;
 
-	if (out == NULL) {
-		ERROR("TME: fuse read - invalid output buffer\n");
-		return E_FAILURE;
-	}
+	if (fuseData == NULL || qfpromApiStatus == NULL)
+		return -1;
 
-	/* Build request */
-	req.addr_space = (uint32_t)space;
-	req.addr = addr;
-
-	/* Send request to TME via TmeForwardRequest */
-	ret = TmeForwardRequest(&req, sizeof(req), &rsp, &rsp_size);
-	if (ret != E_SUCCESS) {
-		ERROR("TME: fuse read failed - TmeForwardRequest error %d\n", ret);
-		return ret;
-	}
-
-	/* Check response size */
-	if (rsp_size < sizeof(rsp)) {
-		ERROR("TME: fuse read - response too small (%zu < %zu)\n",
-		      rsp_size, sizeof(rsp));
-		return E_FAILURE;
-	}
-
-	/* Check TME status */
-	if (rsp.status != E_SUCCESS) {
-		ERROR("TME: fuse read failed - TME status %d\n", rsp.status);
-		return rsp.status;
-	}
-
-	/* Copy fuse data to output */
-	out[0] = rsp.data[0];
-	out[1] = rsp.data[1];
-
-	return E_SUCCESS;
+	WARN("TME: TmeFuseRead not implemented (stub)\n");
+	*qfpromApiStatus = 0x7FFFFFFF; /* QFPROM_ERR_UNKNOWN */
+	return -1;
 }
 
-/* TME fuse write multiple operation */
-int tme_fuse_write_multiple(const tme_fuse_t *fuses, uint32_t count)
+int TmeFuseWriteMultiple(TMEFuse_t *fuseArray, size_t fuseArrayLen,
+			 uint32_t *const qfpromApiStatus)
 {
-	tme_fuse_write_multiple_req_t req;
-	tme_fuse_write_multiple_rsp_t rsp;
-	size_t rsp_size = sizeof(rsp);
-	uint32_t i;
-	int ret;
+	(void)fuseArray;
+	(void)fuseArrayLen;
 
-	if (fuses == NULL || count == 0) {
-		ERROR("TME: fuse write - invalid input\n");
-		return E_FAILURE;
-	}
+	if (qfpromApiStatus == NULL)
+		return -1;
 
-	if (count > 64) {
-		ERROR("TME: fuse write - too many fuses (%u > 64)\n", count);
-		return E_FAILURE;
-	}
-
-	/* Build request */
-	req.count = count;
-	for (i = 0; i < count; i++) {
-		req.fuses[i].addr = fuses[i].addr;
-		req.fuses[i].data[0] = fuses[i].data[0];
-		req.fuses[i].data[1] = fuses[i].data[1];
-	}
-
-	/* Send request to TME via TmeForwardRequest */
-	ret = TmeForwardRequest(&req, sizeof(req), &rsp, &rsp_size);
-	if (ret != E_SUCCESS) {
-		ERROR("TME: fuse write failed - TmeForwardRequest error %d\n", ret);
-		return ret;
-	}
-
-	/* Check response size */
-	if (rsp_size < sizeof(rsp)) {
-		ERROR("TME: fuse write - response too small (%zu < %zu)\n",
-		      rsp_size, sizeof(rsp));
-		return E_FAILURE;
-	}
-
-	/* Check TME status */
-	if (rsp.status != E_SUCCESS) {
-		ERROR("TME: fuse write failed - TME status %d (failed at index %u)\n",
-		      rsp.status, rsp.failed_index);
-		return rsp.status;
-	}
-
-	return E_SUCCESS;
+	WARN("TME: TmeFuseWriteMultiple not implemented (stub)\n");
+	*qfpromApiStatus = 0x7FFFFFFF; /* QFPROM_ERR_UNKNOWN */
+	return -1;
 }
 
-/* TME write config register operation */
-int tme_write_config_register(uint32_t reg_id, uint32_t value)
+int TmeWriteConfigRegister(tmeConfigRegisterId_e registerId, uint32_t value)
 {
-	tme_write_config_register_req_t req;
-	tme_write_config_register_rsp_t rsp;
-	size_t rsp_size = sizeof(rsp);
-	int ret;
+	(void)registerId;
+	(void)value;
 
-	/* Build request */
-	req.reg_id = reg_id;
-	req.value = value;
-
-	/* Send request to TME via TmeForwardRequest */
-	ret = TmeForwardRequest(&req, sizeof(req), &rsp, &rsp_size);
-	if (ret != E_SUCCESS) {
-		ERROR("TME: write config register failed - TmeForwardRequest error %d\n", ret);
-		return ret;
-	}
-
-	/* Check response size */
-	if (rsp_size < sizeof(rsp)) {
-		ERROR("TME: write config register - response too small (%zu < %zu)\n",
-		      rsp_size, sizeof(rsp));
-		return E_FAILURE;
-	}
-
-	/* Check TME status */
-	if (rsp.status != E_SUCCESS) {
-		ERROR("TME: write config register failed - TME status %d\n", rsp.status);
-		return rsp.status;
-	}
-
-	return E_SUCCESS;
+	WARN("TME: TmeWriteConfigRegister not implemented (stub)\n");
+	return -1;
 }

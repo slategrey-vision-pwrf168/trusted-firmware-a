@@ -7,50 +7,67 @@
 #ifndef DRIVERS_QTI_TME_FUSE_H
 #define DRIVERS_QTI_TME_FUSE_H
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
-/* TME QFPROM address space types */
+/*
+ * This header intentionally mirrors the naming of the reference TME
+ * interface (TmeInterfaces.h / TmeInterfacesDefs.h) rather than this
+ * project's usual lower_snake_case convention, so that fuseprov_port_tme.c
+ * matches the reference transport port line-for-line.
+ */
+
+/* QFPROM address space selector. */
 typedef enum {
 	TME_QFPROM_ADDR_SPACE_RAW = 0,
-	TME_QFPROM_ADDR_SPACE_CORRECTED = 1,
-} tme_qfprom_addr_space_t;
+	TME_QFPROM_ADDR_SPACE_CORR = 1,
+	TME_QFPROM_ADDR_SPACE_MAX = 0x7FFFFFFF,
+} TMEQFPROMAddrSpace_t;
 
-/* TME fuse data structure for write operations */
+/* Single fuse row: address plus 64-bit value split as [LSB, MSB]. */
 typedef struct {
 	uint32_t addr;
-	uint32_t data[2];  /* LSB and MSB */
-} tme_fuse_t;
+	uint32_t data[2];
+} TMEFuse_t;
 
-/* TME fuse read operation
- * Reads a single fuse row from QFPROM via TME COM
- *
- * @param space: Address space (raw or corrected)
- * @param addr: Fuse row address
- * @param out: Output buffer for fuse data (2 x uint32_t for LSB/MSB)
- *
- * @return 0 on success, error code otherwise
- */
-int tme_fuse_read(tme_qfprom_addr_space_t space, uint32_t addr, uint32_t out[2]);
+/* Maximum number of fuse rows in one TmeFuseWriteMultiple() request. */
+#define TME_MAX_FUSE_WRITE_REQ 64
 
-/* TME fuse write multiple operation
- * Writes multiple fuse rows to QFPROM via TME COM
- *
- * @param fuses: Array of fuse structures to write
- * @param count: Number of fuses to write
- *
- * @return 0 on success, error code otherwise
- */
-int tme_fuse_write_multiple(const tme_fuse_t *fuses, uint32_t count);
+/* QFPROM configuration register identifiers. */
+typedef enum {
+	QFPROM_BIST_CTRL = 1,
+	QFPROM_WRITE_DISABLE_STICKY_BIT0,
+	QFPROM_WRITE_DISABLE_STICKY_BIT1,
+	TME_WRITE_CONFIG_REGISTER_MAX = 0xFF,
+} tmeConfigRegisterId_e;
 
-/* TME write config register operation
- * Writes to a QFPROM configuration register via TME COM
- *
- * @param reg_id: Configuration register ID
- * @param value: Value to write
- *
- * @return 0 on success, error code otherwise
+/* QFPROM operation completed successfully. */
+#define QFPROM_NO_ERR 0
+
+/* Read a single fuse row via TME.
+ * @addrType: raw or corrected address space
+ * @fuseAddr: fuse row address
+ * @fuseData: output buffer for row data [LSB, MSB]
+ * @qfpromApiStatus: output QFPROM status code (QFPROM_NO_ERR on success)
+ * @return: 0 on success, non-zero on failure
  */
-int tme_write_config_register(uint32_t reg_id, uint32_t value);
+int TmeFuseRead(TMEQFPROMAddrSpace_t addrType, uint32_t fuseAddr,
+		uint32_t *const fuseData, uint32_t *const qfpromApiStatus);
+
+/* Write multiple fuse rows via TME.
+ * @fuseArray: array of fuse rows to write
+ * @fuseArrayLen: number of entries in fuseArray (<= TME_MAX_FUSE_WRITE_REQ)
+ * @qfpromApiStatus: output QFPROM status code (QFPROM_NO_ERR on success)
+ * @return: 0 on success, non-zero on failure
+ */
+int TmeFuseWriteMultiple(TMEFuse_t *fuseArray, size_t fuseArrayLen,
+			 uint32_t *const qfpromApiStatus);
+
+/* Write a QFPROM configuration register via TME.
+ * @registerId: configuration register identifier
+ * @value: value to write
+ * @return: 0 on success, non-zero on failure
+ */
+int TmeWriteConfigRegister(tmeConfigRegisterId_e registerId, uint32_t value);
 
 #endif /* DRIVERS_QTI_TME_FUSE_H */

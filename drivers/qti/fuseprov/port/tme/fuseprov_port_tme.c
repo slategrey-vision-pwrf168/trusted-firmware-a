@@ -8,50 +8,60 @@
 #include <drivers/qti/tme/tme_fuse.h>
 #include <drivers/qti/fuseprov/fuseprov_port_tme.h>
 
-/* TME transport: read fuse row via TME COM */
+/* TME transport: read fuse row via TME.
+ *
+ * fuseprov_addr_space_t values (FUSEPROV_ADDR_RAW=0, FUSEPROV_ADDR_CORR=1)
+ * are numerically identical to TMEQFPROMAddrSpace_t, so a direct cast is
+ * safe.
+ */
 static fuseprov_err_t tme_read_row(void *ctx, uint32_t addr,
 				   fuseprov_addr_space_t space,
 				   uint32_t out[2])
 {
+	uint32_t qfprom_status = 0;
+	int ret;
+
 	(void)ctx;
 
-	int ret = tme_fuse_read((tme_qfprom_addr_space_t)space, addr, out);
-	if (ret != 0) {
-		ERROR("Fuseprov: TME fuse read failed at addr 0x%x\n", addr);
+	ret = TmeFuseRead((TMEQFPROMAddrSpace_t)space, addr, out, &qfprom_status);
+	if (ret != 0 || qfprom_status != QFPROM_NO_ERR) {
+		ERROR("Fuseprov: TME fuse read failed at addr 0x%x (ret=%d, qfprom_status=%u)\n",
+		      addr, ret, qfprom_status);
 		return FUSEPROV_ERR_TRANSPORT;
 	}
 
 	return FUSEPROV_OK;
 }
 
-/* TME transport: write fuse rows via TME COM */
+/* TME transport: write fuse rows via TME. */
 static fuseprov_err_t tme_write_rows(void *ctx, const uint32_t addr[],
 				     const uint64_t data[], uint32_t count,
 				     uintptr_t *addr_err)
 {
+	uint32_t qfprom_status = 0;
+	TMEFuse_t fuses[TME_MAX_FUSE_WRITE_REQ];
+	uint32_t i;
+	int ret;
+
 	(void)ctx;
 
-	if (count == 0)
-		return FUSEPROV_OK;
-
-	if (count > 64) {
-		ERROR("Fuseprov: too many fuses to write (%u > 64)\n", count);
+	if (count > TME_MAX_FUSE_WRITE_REQ) {
+		ERROR("Fuseprov: too many fuses to write (%u > %u)\n",
+		      count, TME_MAX_FUSE_WRITE_REQ);
 		return FUSEPROV_ERR_ADDR_INVALID;
 	}
 
-	/* Convert to TME fuse array format */
-	tme_fuse_t fuses[count];
-	for (uint32_t i = 0; i < count; i++) {
+	for (i = 0; i < count; i++) {
 		fuses[i].addr = addr[i];
 		fuses[i].data[0] = (uint32_t)(data[i]);        /* LSB */
 		fuses[i].data[1] = (uint32_t)(data[i] >> 32);  /* MSB */
 	}
 
-	int ret = tme_fuse_write_multiple(fuses, count);
-	if (ret != 0) {
-		ERROR("Fuseprov: TME fuse write failed\n");
-		if (addr_err)
-			*addr_err = addr[0];
+	ret = TmeFuseWriteMultiple(fuses, (size_t)count, &qfprom_status);
+	if (ret != 0 || qfprom_status != QFPROM_NO_ERR) {
+		ERROR("Fuseprov: TME fuse write failed (ret=%d, qfprom_status=%u)\n",
+		      ret, qfprom_status);
+		(void)addr_err; /* TmeFuseWriteMultiple() does not report the failing address */
 		return FUSEPROV_ERR_TRANSPORT;
 	}
 
