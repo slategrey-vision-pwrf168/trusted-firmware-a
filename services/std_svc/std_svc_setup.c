@@ -187,25 +187,6 @@ static uintptr_t std_svc_smc_handler(uint32_t smc_fid,
 	}
 #endif
 
-#if defined(SPD_qteed)
-	/*
-	 * Dispatch FFA calls to the FFA SMC handler implemented by the QTEE SPD
-	 * and return its return value
-	 */
-        extern 	uint64_t qteed_spmd_ffa_smc_handler(uint32_t smc_fid,
-			  uint64_t x1,
-			  uint64_t x2,
-			  uint64_t x3,
-			  uint64_t x4,
-			  void *cookie,
-			  void *handle,
-			  uint64_t flags);
-	if (is_ffa_fid(smc_fid)) {
-		return qteed_spmd_ffa_smc_handler(smc_fid, x1, x2, x3, x4, cookie,
-					    handle, flags);
-	}
-#endif
-
 #if SDEI_SUPPORT
 	if (is_sdei_fid(smc_fid)) {
 		return sdei_smc_handler(smc_fid, x1, x2, x3, x4, cookie, handle,

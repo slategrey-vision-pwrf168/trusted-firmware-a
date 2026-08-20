@@ -53,9 +53,8 @@ int bl31qtilib_cb_int_register_isr(uint32_t intnum, const char *int_desc,
 				   void *(*fn)(void *), void *ctx,
 				   uint32_t flags, bool enable);
 
-/*
- * Install an ISR function for a fatal error. This might be registered with
- * Secure Group 1 in QTEE if qteed SPD is present, or in Group 0 with TFA.
+/**
+ * Install an ISR function for a fatal error, in Group 0 with TFA.
  *
  * @param [in] intnum   Interrupt number the ISR is registered for.
  * @param [in] int_desc Character string description of the interrupt
@@ -94,11 +93,8 @@ int bl31qtilib_cb_int_disable(uint32_t intnum);
 
 /*
  * Disables the given interrupt on the interrupt controller for a fatal error.
- * If qteed is enabled, then it will disable it in QTEE.
  *
- * @param [in] intnum   The interrupt to be disabled. NB: if qteed is enabled,
- *                      this parameter will be ignored and the interrupt being
- *                      handled will be disabled.
+ * @param [in] intnum   The interrupt to be disabled.
  *
  * @return 0 if successful, Error code otherwise.
  *
@@ -142,9 +138,9 @@ int bl31qtilib_cb_set_int_targets(uint32_t intnum, uint32_t target);
 bool bl31qtilib_cb_is_image_authenticated(uint32_t image_id,
 					  uint64_t *entrypoint);
 
-/*
- * @brief API to report a fatal error. BL31 will forward the error to QTEE
- * which then will prepare for crashdump.
+/**
+ * @brief API to report a fatal error. BL31 will forward the error to the
+ * platform error handler.
  *
  * This function does not return.
  *
@@ -153,9 +149,8 @@ bool bl31qtilib_cb_is_image_authenticated(uint32_t image_id,
  */
 void bl31qtilib_cb_error_fatal(int error_code);
 
-/*
- * @brief API to report a fatal error within an ISR. BL31 will forward the error
- * to QTEE only if qteed is enabled, and QTEE will prepare for crashdump.
+/**
+ * @brief API to report a fatal error within an ISR.
  *
  * This function does not return.
  *
@@ -164,10 +159,8 @@ void bl31qtilib_cb_error_fatal(int error_code);
  */
 void bl31qtilib_cb_set_error_fatal(int error_code);
 
-/*
- * @brief API to report a fatal error within an ISR. BL31 will forward the error
- * to QTEE only if qteed is enabled, and QTEE will prepare for crashdump. The
- * condition allows QTEE to go back to HLOS to collect additional dumps.
+/**
+ * @brief API to report a fatal error within an ISR.
  *
  * This function does not return.
  *

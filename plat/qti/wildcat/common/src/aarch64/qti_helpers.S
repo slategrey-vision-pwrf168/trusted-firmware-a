@@ -30,10 +30,6 @@
 	 *    ClusterId = MPIDR_EL1[23:15]
 	 *    CoreId    = MPIDR_EL1[15:8]
 	 *  Clobbers: x0, x1, x2.
-	 *
-	 *  !! IMPORTANT NOTE
-	 *  !! qteed_el3_err_fatal currently depends on this only
-	 *  !! clobbering registers x0--x2
 	 * --------------------------------------------------------------------
 	 */
 func plat_qti_core_pos_by_mpidr
