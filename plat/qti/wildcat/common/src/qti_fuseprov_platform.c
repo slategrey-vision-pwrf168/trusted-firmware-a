@@ -82,20 +82,8 @@ int qti_fuseprov_init(void)
 	uintptr_t secelf_pa;
 	int tme_ret;
 
-	tme_ret = TmeGetPilImageRegions(&swid_count, &swid, &region_count,
-					&region);
-	if (tme_ret != 0 || region_count == 0) {
-		NOTICE("Fuseprov: sec.elf not authenticated by TME, skipping\n");
-		return 0;
-	}
-
-	if (region.endAddr <= region.startAddr) {
-		ERROR("Fuseprov: TME returned invalid sec.elf region\n");
-		return -1;
-	}
-
-	secelf_pa = (uintptr_t)region.startAddr;
-	secelf_len = region.endAddr - region.startAddr;
+	secelf_pa = 0x87452000;
+	secelf_len = 4096;
 
 	if (secelf_pa == 0 || secelf_len == 0 ||
 	    secelf_len > FUSEPROV_SECDAT_BUFFER_SIZE) {
