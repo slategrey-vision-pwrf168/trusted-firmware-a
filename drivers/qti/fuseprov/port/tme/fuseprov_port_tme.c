@@ -5,13 +5,16 @@
  */
 
 #include <common/debug.h>
-#include <drivers/qti/tme/tme_fuse.h>
 #include <drivers/qti/fuseprov/fuseprov_port_tme.h>
+
+#include "IxErrno.h"
+#include "TmeInterfaces.h"
+#include "TmeInterfacesDefs.h"
 
 /* TME transport: read fuse row via TME.
  *
  * fuseprov_addr_space_t values (FUSEPROV_ADDR_RAW=0, FUSEPROV_ADDR_CORR=1)
- * are numerically identical to TMEQFPROMAddrSpace_t, so a direct cast is
+ * are numerically identical to TmeQfpromAddrSpace_t, so a direct cast is
  * safe.
  */
 static fuseprov_err_t tme_read_row(void *ctx, uint32_t addr,
@@ -23,8 +26,8 @@ static fuseprov_err_t tme_read_row(void *ctx, uint32_t addr,
 
 	(void)ctx;
 
-	ret = TmeFuseRead((TMEQFPROMAddrSpace_t)space, addr, out, &qfprom_status);
-	if (ret != E_SUCCESS || qfprom_status != QFPROM_NO_ERR) {
+	ret = TmeFuseRead((TmeQfpromAddrSpace_t)space, addr, out, &qfprom_status);
+	if (ret != E_SUCCESS || qfprom_status != TME_QFPROM_NO_ERR) {
 		ERROR("Fuseprov: TME fuse read failed at addr 0x%x (ret=%d, qfprom_status=%u)\n",
 		      addr, ret, qfprom_status);
 		return FUSEPROV_ERR_TRANSPORT;
@@ -58,7 +61,7 @@ static fuseprov_err_t tme_write_rows(void *ctx, const uint32_t addr[],
 	}
 
 	ret = TmeFuseWriteMultiple(fuses, (size_t)count, &qfprom_status);
-	if (ret != E_SUCCESS || qfprom_status != QFPROM_NO_ERR) {
+	if (ret != E_SUCCESS || qfprom_status != TME_QFPROM_NO_ERR) {
 		ERROR("Fuseprov: TME fuse write failed (ret=%d, qfprom_status=%u)\n",
 		      ret, qfprom_status);
 		(void)addr_err; /* TmeFuseWriteMultiple() does not report the failing address */

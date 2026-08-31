@@ -10,7 +10,6 @@
 #include <drivers/qti/fuseprov/fuseprov.h>
 #include <drivers/qti/fuseprov/fuseprov_mrc_cfg.h>
 #include <drivers/qti/fuseprov/fuseprov_port_tme.h>
-#include <drivers/qti/tme/tme_fuse.h>
 
 /* Blow fuses and trigger reset
  *
@@ -74,13 +73,8 @@ int qti_fuseprov_init(void)
 {
 	fuseprov_error_etype ret;
 	const fuseprov_transport_t *transport;
-	uint32_t swid = SEC_ELF_SS_SWID;
-	uint32_t swid_count = 1;
-	tmePilRegion_t region = { 0 };
-	uint32_t region_count = 1;
 	uint32_t secelf_len;
 	uintptr_t secelf_pa;
-	int tme_ret;
 
 	secelf_pa = 0x87452000;
 	secelf_len = 4096;
@@ -92,8 +86,8 @@ int qti_fuseprov_init(void)
 		return -1;
 	}
 
-	/* region.startAddr is a DDR physical address handed back by TME; it
-	 * is not part of any static MMU region, so map it before use.
+	/* secelf_pa is a DDR physical address; it is not part of any static
+	 * MMU region, so map it before use.
 	 */
 	if (qti_mmap_add_dynamic_region(secelf_pa, secelf_len,
 					MT_RO_DATA | MT_SECURE) != 0) {
