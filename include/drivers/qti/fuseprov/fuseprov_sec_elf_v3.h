@@ -38,30 +38,19 @@ typedef enum {
 	FUSEPROV_INVALID_OPERATION_TYPE = 23,
 } fuseprov_error_etype;
 
-/* SEC.DAT v3 header structure */
+/* SEC.DAT v3 header structure
+ *
+ * v3 is flat: a fixed header is immediately followed by num_entries
+ * fuseprov_qfuse_entry_t records. There are no segments, no footer and no
+ * hash -- sec.elf integrity is established upstream by TME/PIL authentication
+ * before this buffer is ever parsed.
+ */
 typedef struct {
 	uint32_t magic1;           /* 0x3B7251CA */
 	uint32_t magic2;           /* 0x2A126F29 */
 	uint32_t revision;         /* 3 */
-	uint32_t size;             /* Total data size after header */
-	uint8_t info[16];          /* Metadata/info string */
-	uint32_t segment_number;   /* Number of segments */
-	uint32_t reserved[3];      /* Padding */
+	uint32_t num_entries;      /* Number of fuse entries following the header */
 } fuseprov_secdat_hdr_t;
-
-/* SEC.DAT v3 segment header */
-typedef struct {
-	uint32_t segment_type;     /* EFUSE (0x0) or ENCKEY (0x1) */
-	uint32_t segment_size;     /* Size of segment data */
-	uint32_t offset;           /* Offset from end of segment headers */
-} fuseprov_segment_hdr_t;
-
-/* Fuse list header within a segment */
-typedef struct {
-	uint32_t revision;         /* 2 or 3 */
-	uint32_t fuse_count;       /* Number of fuse entries */
-	uint32_t size;             /* Size of fuse list data */
-} fuseprov_qfuse_list_hdr_t;
 
 /* Individual fuse entry */
 typedef struct {
@@ -69,13 +58,8 @@ typedef struct {
 	uint32_t raw_row_address;  /* QFPROM row address */
 	uint32_t lsb_val;          /* LSB value to write */
 	uint32_t msb_val;          /* MSB value to write */
-	uint32_t operation;        /* Operation type (BLOW, BLOW_RANDOM, etc.) */
+	uint32_t operation;        /* Operation type (BLOW, BLOW_RANDOM) */
 } fuseprov_qfuse_entry_t;
-
-/* SEC.DAT footer with hash */
-typedef struct {
-	uint8_t hash[32];          /* SHA256 hash of header + segments + data */
-} fuseprov_secdat_footer_t;
 
 /* Region type enums */
 typedef enum {
@@ -96,8 +80,7 @@ typedef enum {
 /* Operation type enums */
 typedef enum {
 	FUSEPROV_OPERATION_BLOW = 0x0,
-	FUSEPROV_OPERATION_VERIFYMASK0 = 0x1,
-	FUSEPROV_OPERATION_BLOW_RANDOM = 0x2,
+	FUSEPROV_OPERATION_BLOW_RANDOM = 0x1,
 } fuseprov_operation_type_t;
 
 /* Fuse provisioning category
@@ -140,17 +123,5 @@ bool fuseprov_is_region_in_category(fuseprov_category_t category,
 #define FUSEPROV_SECDAT_MAGIC2           0x2A126F29
 #define FUSEPROV_SECDAT_V3_REV           3
 #define FUSEPROV_FEC_ROW_MSB_MASK        0xFF000000
-
-/* Segment types */
-#define FUSEPROV_SEGMENT_TYPE_EFUSE      0x0
-#define FUSEPROV_SEGMENT_TYPE_ENCKEY     0x1
-
-/* Secure memory clearing - prevents compiler optimization */
-static inline void fuseprov_secure_memset(void *s, int c, size_t n)
-{
-	volatile unsigned char *p = (volatile unsigned char *)s;
-	while (n--)
-		*p++ = (unsigned char)c;
-}
 
 #endif /* FUSEPROV_SEC_ELF_V3_H */

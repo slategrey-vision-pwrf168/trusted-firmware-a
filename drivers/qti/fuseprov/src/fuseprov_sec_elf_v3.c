@@ -9,42 +9,31 @@
 #include <drivers/qti/crypto/rng.h>
 #include <drivers/qti/fuseprov/fuseprov_port.h>
 #include <drivers/qti/fuseprov/fuseprov_sec_elf_v3.h>
-#include "../fuseprov_sha256.h"
 
-static void fuseprov_print_hash(const char *label, const uint8_t *hash)
-{
-	INFO("Fuseprov: %s hash: "
-	     "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x"
-	     "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\n",
-	     label,
-	     hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7],
-	     hash[8], hash[9], hash[10], hash[11], hash[12], hash[13], hash[14], hash[15],
-	     hash[16], hash[17], hash[18], hash[19], hash[20], hash[21], hash[22], hash[23],
-	     hash[24], hash[25], hash[26], hash[27], hash[28], hash[29], hash[30], hash[31]);
-}
-
-/* Validate SEC.DAT header and extract segment information */
+/* Validate SEC.DAT header and extract the flat fuse-entry array
+ *
+ * SEC.DAT v3 has no segments, footer or hash: a fixed header is immediately
+ * followed by hdr->num_entries fuseprov_qfuse_entry_t records.
+ */
 static fuseprov_error_etype fuseprov_parse_secdat_hdr(
 	const uint8_t *buffer, size_t buffer_len,
 	fuseprov_secdat_hdr_t *hdr,
-	fuseprov_segment_hdr_t **segments,
-	uint32_t *segment_count)
+	const fuseprov_qfuse_entry_t **entries,
+	uint32_t *entry_count)
 {
-	uint32_t data_size;
-	uint8_t computed_hash[32];
-	const fuseprov_secdat_footer_t *footer;
-
-	if (buffer == NULL || hdr == NULL || segments == NULL ||
-	    segment_count == NULL) {
+	if (buffer == NULL || hdr == NULL || entries == NULL ||
+	    entry_count == NULL) {
 		return FUSEPROV_INVALID_ARG;
 	}
 
-	if (buffer_len < sizeof(fuseprov_secdat_hdr_t) +
-			 sizeof(fuseprov_secdat_footer_t)) {
+	if (buffer_len < sizeof(fuseprov_secdat_hdr_t)) {
 		return FUSEPROV_SECDAT_SIZE_LEN_MISMATCH;
 	}
 
 	memcpy(hdr, buffer, sizeof(fuseprov_secdat_hdr_t));
+
+	INFO("Fuseprov: SEC.DAT raw bytes[0:4]=%02x %02x %02x %02x\n",
+	     buffer[0], buffer[1], buffer[2], buffer[3]);
 
 	INFO("Fuseprov: SEC.DAT magic1=0x%x magic2=0x%x\n",
 	     hdr->magic1, hdr->magic2);
@@ -61,108 +50,16 @@ static fuseprov_error_etype fuseprov_parse_secdat_hdr(
 		return FUSEPROV_SECDAT_REV_NOT_SUPPORTED;
 	}
 
-	if (hdr->segment_number > 32) {
-		ERROR("Fuseprov: Too many segments (%u)\n", hdr->segment_number);
-		return FUSEPROV_SECDAT_SEGMENT_NUM_NOT_SUPPORTED;
-	}
-
-	data_size = sizeof(fuseprov_secdat_hdr_t) +
-		    (hdr->segment_number * sizeof(fuseprov_segment_hdr_t)) +
-		    hdr->size;
-
-	if (data_size + sizeof(fuseprov_secdat_footer_t) > buffer_len) {
-		ERROR("Fuseprov: Buffer too small for SEC.DAT\n");
+	if ((buffer_len - sizeof(fuseprov_secdat_hdr_t)) /
+	    sizeof(fuseprov_qfuse_entry_t) < hdr->num_entries) {
+		ERROR("Fuseprov: Buffer too small for %u fuse entries\n",
+		      hdr->num_entries);
 		return FUSEPROV_SECDAT_SIZE_LEN_MISMATCH;
 	}
 
-	/* Verify SHA256 hash */
-	fuseprov_sha256(buffer, data_size, computed_hash);
-	footer = (const fuseprov_secdat_footer_t *)(buffer + data_size);
-
-#ifndef QTI_FUSEPROV_TEST
-	if (memcmp(computed_hash, footer->hash, 32) != 0) {
-		ERROR("Fuseprov: SEC.DAT hash mismatch\n");
-		fuseprov_print_hash("computed", computed_hash);
-		fuseprov_print_hash("parsed  ", footer->hash);
-		return FUSEPROV_INVALID_HASH;
-	}
-#else
-	fuseprov_print_hash("computed", computed_hash);
-	fuseprov_print_hash("parsed  ", footer->hash);
-#endif /* QTI_FUSEPROV_TEST */
-
-	*segments = (fuseprov_segment_hdr_t *)(buffer +
-						sizeof(fuseprov_secdat_hdr_t));
-	*segment_count = hdr->segment_number;
-
-	return FUSEPROV_SUCCESS;
-}
-
-/* Find a specific segment by type */
-static fuseprov_error_etype fuseprov_find_segment(
-	const fuseprov_segment_hdr_t *segments,
-	uint32_t segment_count, uint32_t segment_type,
-	const uint8_t *buffer, size_t buffer_len,
-	const uint8_t **segment_data)
-{
-	uint32_t i;
-
-	if (segments == NULL || segment_data == NULL) {
-		return FUSEPROV_INVALID_ARG;
-	}
-
-	for (i = 0; i < segment_count; i++) {
-		if (segments[i].segment_type == segment_type) {
-			if (segments[i].offset >= buffer_len) {
-				return FUSEPROV_SEGMENT_NOT_FOUND;
-			}
-			*segment_data = buffer + segments[i].offset;
-			return FUSEPROV_SUCCESS;
-		}
-	}
-
-	return FUSEPROV_SEGMENT_NOT_FOUND;
-}
-
-/* Parse fuse list header and extract fuse entries */
-static fuseprov_error_etype fuseprov_parse_qfuse_list_hdr(
-	const uint8_t *segment_data,
-	size_t segment_len,
-	fuseprov_qfuse_list_hdr_t *list_hdr,
-	const fuseprov_qfuse_entry_t **entries,
-	uint32_t *entry_count)
-{
-	if (segment_data == NULL || list_hdr == NULL || entries == NULL ||
-	    entry_count == NULL) {
-		return FUSEPROV_INVALID_ARG;
-	}
-
-	if (segment_len < sizeof(fuseprov_qfuse_list_hdr_t)) {
-		return FUSEPROV_SECDAT_SIZE_LEN_MISMATCH;
-	}
-
-	memcpy(list_hdr, segment_data, sizeof(fuseprov_qfuse_list_hdr_t));
-
-	if (list_hdr->revision != 2 && list_hdr->revision != 3) {
-		ERROR("Fuseprov: Qfuse list revision %u not supported\n",
-		      list_hdr->revision);
-		return FUSEPROV_QFUSE_REV_NOT_SUPPORTED;
-	}
-
-	if (list_hdr->fuse_count == 0 || list_hdr->fuse_count > 1024) {
-		ERROR("Fuseprov: Invalid fuse count %u\n", list_hdr->fuse_count);
-		return FUSEPROV_SECDAT_SIZE_LEN_MISMATCH;
-	}
-
-	if (list_hdr->size !=
-	    list_hdr->fuse_count * sizeof(fuseprov_qfuse_entry_t)) {
-		ERROR("Fuseprov: Fuse list size mismatch\n");
-		return FUSEPROV_SECDAT_SIZE_LEN_MISMATCH;
-	}
-
-	*entries = (const fuseprov_qfuse_entry_t *)(segment_data +
-						    sizeof(fuseprov_qfuse_list_hdr_t));
-	*entry_count = list_hdr->fuse_count;
+	*entries = (const fuseprov_qfuse_entry_t *)(buffer +
+						     sizeof(fuseprov_secdat_hdr_t));
+	*entry_count = hdr->num_entries;
 
 	return FUSEPROV_SUCCESS;
 }
@@ -301,6 +198,43 @@ static fuseprov_error_etype fuseprov_provision_shk(
 	return FUSEPROV_SUCCESS;
 }
 
+/* Provision OEM product seed with random data */
+static fuseprov_error_etype fuseprov_provision_oem_product_seed(
+	const fuseprov_transport_t *t,
+	const fuseprov_qfuse_entry_t *entries,
+	uint32_t entry_count)
+{
+	uint8_t random_data[40];
+	uint32_t i;
+	int ret;
+
+	ret = qti_rng_get_data(random_data, sizeof(random_data));
+	if (ret != 0) {
+		ERROR("Fuseprov: Failed to generate random data for OEM product seed\n");
+		return FUSEPROV_SHK_GENERATION_FAILED;
+	}
+
+	for (i = 0; i < entry_count; i++) {
+		if (entries[i].region_type == FUSEPROV_REGION_TYPE_OEM_PRODUCT_SEED &&
+		    entries[i].operation == FUSEPROV_OPERATION_BLOW_RANDOM) {
+			uint64_t data;
+			fuseprov_err_t fret;
+
+			memcpy(&data, &random_data[i * 8], 8);
+
+			fret = fuseprov_rows_write(t,
+					&entries[i].raw_row_address,
+					&data, 1, NULL);
+			if (fret != FUSEPROV_OK) {
+				ERROR("Fuseprov: Failed to write OEM product seed fuse\n");
+				return FUSEPROV_QFPROM_WRITE_ERROR;
+			}
+		}
+	}
+
+	return FUSEPROV_SUCCESS;
+}
+
 /* Provision OEM spare data with random values */
 static fuseprov_error_etype fuseprov_provision_oem_spare(
 	const fuseprov_transport_t *t,
@@ -347,11 +281,6 @@ fuseprov_error_etype fuseprov_blow_fuses_sec_elf_v3(
 	uint32_t len)
 {
 	fuseprov_secdat_hdr_t hdr;
-	fuseprov_segment_hdr_t *segments;
-	uint32_t segment_count;
-	const uint8_t *efuse_segment;
-	const uint8_t *enckey_segment;
-	fuseprov_qfuse_list_hdr_t list_hdr;
 	const fuseprov_qfuse_entry_t *entries;
 	uint32_t entry_count;
 	fuseprov_error_etype ret;
@@ -362,120 +291,66 @@ fuseprov_error_etype fuseprov_blow_fuses_sec_elf_v3(
 
 	NOTICE("Fuseprov: Starting fuse provisioning\n");
 
-	/* Parse SEC.DAT header */
-	ret = fuseprov_parse_secdat_hdr(buf, len, &hdr,
-				       &segments, &segment_count);
+	/* Parse SEC.DAT header and get the flat fuse-entry array */
+	ret = fuseprov_parse_secdat_hdr(buf, len, &hdr, &entries, &entry_count);
 	if (ret != FUSEPROV_SUCCESS) {
 		ERROR("Fuseprov: Failed to parse SEC.DAT header\n");
 		return ret;
 	}
 
-	/* Process EFUSE segment */
-	ret = fuseprov_find_segment(segments, segment_count,
-				   FUSEPROV_SEGMENT_TYPE_EFUSE, buf,
-				   len, &efuse_segment);
-	if (ret == FUSEPROV_SUCCESS) {
-		ret = fuseprov_parse_qfuse_list_hdr(efuse_segment, len,
-						   &list_hdr, &entries,
-						   &entry_count);
-		if (ret != FUSEPROV_SUCCESS) {
-			ERROR("Fuseprov: Failed to parse EFUSE segment\n");
-			return ret;
-		}
-
-		/* Blow fuses in order: GENERAL -> SHK -> OEM_PRODUCT_SEED ->
-		 * OEM_SPARE -> OEM_CONFIG -> SECBOOT -> FEC_EN -> READ_PERM ->
-		 * WRITE_PERM (last, locks everything)
-		 */
-		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_CATEGORY_GENERAL);
-		if (ret != FUSEPROV_SUCCESS) {
-			return ret;
-		}
-
-		ret = fuseprov_provision_shk(t, entries, entry_count);
-		if (ret != FUSEPROV_SUCCESS) {
-			return ret;
-		}
-
-		ret = fuseprov_provision_oem_spare(t, entries, entry_count);
-		if (ret != FUSEPROV_SUCCESS) {
-			return ret;
-		}
-
-		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_CATEGORY_OEM_CONFIG);
-		if (ret != FUSEPROV_SUCCESS) {
-			return ret;
-		}
-
-		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_CATEGORY_SECBOOT);
-		if (ret != FUSEPROV_SUCCESS) {
-			return ret;
-		}
-
-		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_CATEGORY_FEC_EN);
-		if (ret != FUSEPROV_SUCCESS) {
-			return ret;
-		}
-
-		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_CATEGORY_READ_PERM);
-		if (ret != FUSEPROV_SUCCESS) {
-			return ret;
-		}
-
-		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_CATEGORY_WRITE_PERM);
-		if (ret != FUSEPROV_SUCCESS) {
-			return ret;
-		}
+	/* Blow fuses in order: GENERAL -> SHK -> OEM_PRODUCT_SEED ->
+	 * OEM_SPARE -> OEM_CONFIG -> SECBOOT -> FEC_EN -> READ_PERM ->
+	 * WRITE_PERM (last, locks everything)
+	 */
+	ret = fuseprov_blow_fuseregion(t, entries, entry_count,
+				      FUSEPROV_CATEGORY_GENERAL);
+	if (ret != FUSEPROV_SUCCESS) {
+		return ret;
 	}
 
-	/* Process ENCKEY segment (boot image encryption keys) */
-	ret = fuseprov_find_segment(segments, segment_count,
-				   FUSEPROV_SEGMENT_TYPE_ENCKEY, buf,
-				   len, &enckey_segment);
-	if (ret == FUSEPROV_SUCCESS) {
-		ret = fuseprov_parse_qfuse_list_hdr(enckey_segment, len,
-						   &list_hdr, &entries,
-						   &entry_count);
-		if (ret != FUSEPROV_SUCCESS) {
-			ERROR("Fuseprov: Failed to parse ENCKEY segment\n");
-			return ret;
-		}
+	ret = fuseprov_provision_shk(t, entries, entry_count);
+	if (ret != FUSEPROV_SUCCESS) {
+		return ret;
+	}
 
-		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_CATEGORY_GENERAL);
-		if (ret != FUSEPROV_SUCCESS) {
-			return ret;
-		}
+	ret = fuseprov_provision_oem_product_seed(t, entries, entry_count);
+	if (ret != FUSEPROV_SUCCESS) {
+		return ret;
+	}
 
-		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_CATEGORY_OEM_CONFIG);
-		if (ret != FUSEPROV_SUCCESS) {
-			return ret;
-		}
+	ret = fuseprov_provision_oem_spare(t, entries, entry_count);
+	if (ret != FUSEPROV_SUCCESS) {
+		return ret;
+	}
 
-		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_CATEGORY_FEC_EN);
-		if (ret != FUSEPROV_SUCCESS) {
-			return ret;
-		}
+	ret = fuseprov_blow_fuseregion(t, entries, entry_count,
+				      FUSEPROV_CATEGORY_OEM_CONFIG);
+	if (ret != FUSEPROV_SUCCESS) {
+		return ret;
+	}
 
-		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_CATEGORY_READ_PERM);
-		if (ret != FUSEPROV_SUCCESS) {
-			return ret;
-		}
+	ret = fuseprov_blow_fuseregion(t, entries, entry_count,
+				      FUSEPROV_CATEGORY_SECBOOT);
+	if (ret != FUSEPROV_SUCCESS) {
+		return ret;
+	}
 
-		ret = fuseprov_blow_fuseregion(t, entries, entry_count,
-					      FUSEPROV_CATEGORY_WRITE_PERM);
-		if (ret != FUSEPROV_SUCCESS) {
-			return ret;
-		}
+	ret = fuseprov_blow_fuseregion(t, entries, entry_count,
+				      FUSEPROV_CATEGORY_FEC_EN);
+	if (ret != FUSEPROV_SUCCESS) {
+		return ret;
+	}
+
+	ret = fuseprov_blow_fuseregion(t, entries, entry_count,
+				      FUSEPROV_CATEGORY_READ_PERM);
+	if (ret != FUSEPROV_SUCCESS) {
+		return ret;
+	}
+
+	ret = fuseprov_blow_fuseregion(t, entries, entry_count,
+				      FUSEPROV_CATEGORY_WRITE_PERM);
+	if (ret != FUSEPROV_SUCCESS) {
+		return ret;
 	}
 
 	NOTICE("Fuseprov: Fuse provisioning complete\n");
