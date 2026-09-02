@@ -412,12 +412,19 @@ void bl31_platform_setup(void)
 		ERROR("Watchdog initialization error\n");
 	}
 
-	/* Provision fuses from the sec.elf image TME authenticated at boot */
-	qti_fuseprov_init();
-
 	bl31qtilib_bl31_platform_setup();
 
 	INFO("TFA Start\n");
+
+	/*
+	 * Provision fuses from the sec.elf image TME authenticated at boot.
+	 * Must run after bl31qtilib_bl31_platform_setup(): fuseprov talks to
+	 * TME over the tme-qmp TMECOM channel, which is not connected yet at
+	 * this point in bring-up - calling earlier hits tmecomInterfaceInit()'s
+	 * 100 ms connect timeout and every TME transaction fails with
+	 * FUSEPROV_ERR_TRANSPORT.
+	 */
+	qti_fuseprov_init();
 
 #ifdef QTI_USE_TMECOM
 	// INFO("TFA tmecom init\n");

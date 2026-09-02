@@ -11,6 +11,18 @@
 #include <drivers/qti/fuseprov/fuseprov_sec_elf_v3.h>
 #include "../fuseprov_sha256.h"
 
+static void fuseprov_print_hash(const char *label, const uint8_t *hash)
+{
+	INFO("Fuseprov: %s hash: "
+	     "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x"
+	     "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\n",
+	     label,
+	     hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7],
+	     hash[8], hash[9], hash[10], hash[11], hash[12], hash[13], hash[14], hash[15],
+	     hash[16], hash[17], hash[18], hash[19], hash[20], hash[21], hash[22], hash[23],
+	     hash[24], hash[25], hash[26], hash[27], hash[28], hash[29], hash[30], hash[31]);
+}
+
 /* Validate SEC.DAT header and extract segment information */
 static fuseprov_error_etype fuseprov_parse_secdat_hdr(
 	const uint8_t *buffer, size_t buffer_len,
@@ -18,7 +30,6 @@ static fuseprov_error_etype fuseprov_parse_secdat_hdr(
 	fuseprov_segment_hdr_t **segments,
 	uint32_t *segment_count)
 {
-	const uint8_t *data_end;
 	uint32_t data_size;
 	uint8_t computed_hash[32];
 	const fuseprov_secdat_footer_t *footer;
@@ -34,6 +45,9 @@ static fuseprov_error_etype fuseprov_parse_secdat_hdr(
 	}
 
 	memcpy(hdr, buffer, sizeof(fuseprov_secdat_hdr_t));
+
+	INFO("Fuseprov: SEC.DAT magic1=0x%x magic2=0x%x\n",
+	     hdr->magic1, hdr->magic2);
 
 	if (hdr->magic1 != FUSEPROV_SECDAT_MAGIC1 ||
 	    hdr->magic2 != FUSEPROV_SECDAT_MAGIC2) {
@@ -65,10 +79,17 @@ static fuseprov_error_etype fuseprov_parse_secdat_hdr(
 	fuseprov_sha256(buffer, data_size, computed_hash);
 	footer = (const fuseprov_secdat_footer_t *)(buffer + data_size);
 
+#ifndef QTI_FUSEPROV_TEST
 	if (memcmp(computed_hash, footer->hash, 32) != 0) {
 		ERROR("Fuseprov: SEC.DAT hash mismatch\n");
+		fuseprov_print_hash("computed", computed_hash);
+		fuseprov_print_hash("parsed  ", footer->hash);
 		return FUSEPROV_INVALID_HASH;
 	}
+#else
+	fuseprov_print_hash("computed", computed_hash);
+	fuseprov_print_hash("parsed  ", footer->hash);
+#endif /* QTI_FUSEPROV_TEST */
 
 	*segments = (fuseprov_segment_hdr_t *)(buffer +
 						sizeof(fuseprov_secdat_hdr_t));

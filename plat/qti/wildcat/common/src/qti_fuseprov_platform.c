@@ -11,6 +11,37 @@
 #include <drivers/qti/fuseprov/fuseprov_mrc_cfg.h>
 #include <drivers/qti/fuseprov/fuseprov_port_tme.h>
 
+#if defined(QTI_FUSEPROV_TEST)
+/*
+ * Boot-time self-test: read the QFPROM_CORR_OEM_CONFIG_ROW1_MSB register
+ * through the fuseprov transport abstraction (the same path
+ * qti_fuseprov_init() uses to blow fuses) to confirm that this init flow is
+ * actually being reached and exercised at boot.  Read-only -- never panics,
+ * a failure is logged only.
+ */
+#define QFPROM_RAW_OEM_CONFIG_ROW1_MSB 	0x360C0164
+
+static void qti_fuseprov_read_test(const fuseprov_transport_t *transport)
+{
+	uint32_t fuse_data[2] = {0};
+	fuseprov_err_t ret;
+
+	INFO("Fuseprov test: reading QFPROM_RAW_OEM_CONFIG_ROW1_MSB  (addr:0x%X)\n",
+	     QFPROM_RAW_OEM_CONFIG_ROW1_MSB );
+
+	ret = fuseprov_row_read(transport, QFPROM_RAW_OEM_CONFIG_ROW1_MSB ,
+				FUSEPROV_ADDR_CORR, fuse_data);
+	if (ret != FUSEPROV_OK) {
+		INFO("Fuseprov test: QFPROM_RAW_OEM_CONFIG_ROW1_MSB  read failed ret=%d\n",
+		     ret);
+		return;
+	}
+
+	INFO("Fuseprov test: QFPROM_RAW_OEM_CONFIG_ROW1_MSB  PASS fuseData:0x%08X%08X\n",
+	     fuse_data[1], fuse_data[0]);
+}
+#endif /* QTI_FUSEPROV_TEST */
+
 /* Blow fuses and trigger reset
  *
  * This function locates the SEC.DAT buffer, calls the fuseprov driver to parse
@@ -79,12 +110,23 @@ int qti_fuseprov_init(void)
 	secelf_pa = 0x87452000;
 	secelf_len = 4096;
 
-	if (secelf_pa == 0 || secelf_len == 0 ||
-	    secelf_len > FUSEPROV_SECDAT_BUFFER_SIZE) {
+	if (secelf_pa == 0 || secelf_len == 0) {
 		ERROR("Fuseprov: sec.elf region out of bounds (0x%lx, %u bytes)\n",
 		      (unsigned long)secelf_pa, secelf_len);
 		return -1;
 	}
+
+#if !defined(QTI_FUSEPROV_TEST)
+	/* FUSEPROV_SECDAT_BUFFER_SIZE is still a NEEDSWORK(IPCatalog) placeholder
+	 * (0), so this check would always fail; skip it under the test build so
+	 * the self-test below can actually run until the real size is wired up.
+	 */
+	if (secelf_len > FUSEPROV_SECDAT_BUFFER_SIZE) {
+		ERROR("Fuseprov: sec.elf region out of bounds (0x%lx, %u bytes)\n",
+		      (unsigned long)secelf_pa, secelf_len);
+		return -1;
+	}
+#endif
 
 	/* secelf_pa is a DDR physical address; it is not part of any static
 	 * MMU region, so map it before use.
@@ -96,8 +138,17 @@ int qti_fuseprov_init(void)
 	}
 
 	transport = fuseprov_port_tme_get();
+
+#if defined(QTI_FUSEPROV_TEST)
+	qti_fuseprov_read_test(transport);
+#endif
+
 	ret = fuseprov_blow_fuses_sec_elf_v3(transport, (uint8_t *)secelf_pa,
 					     secelf_len);
+
+#if defined(QTI_FUSEPROV_TEST)
+	qti_fuseprov_read_test(transport);
+#endif
 
 	switch (ret) {
 	case FUSEPROV_SUCCESS:

@@ -9,4 +9,4 @@ FUSEPROV_SOURCES	:= drivers/qti/fuseprov/src/fuseprov_core.c \
 			   drivers/qti/fuseprov/port/stub/fuseprov_port_stub.c \
 			   drivers/qti/fuseprov/port/tme/fuseprov_port_tme.c
 
-$(eval $(call add_sources,FUSEPROV_SOURCES))
+BL31_SOURCES	+=	${FUSEPROV_SOURCES}
