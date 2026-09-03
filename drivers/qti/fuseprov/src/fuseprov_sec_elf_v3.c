@@ -7,6 +7,7 @@
 #include <string.h>
 #include <common/debug.h>
 #include <drivers/qti/crypto/rng.h>
+#include <drivers/qti/fuseprov/fuseprov_mrc_cfg.h>
 #include <drivers/qti/fuseprov/fuseprov_port.h>
 #include <drivers/qti/fuseprov/fuseprov_sec_elf_v3.h>
 
@@ -115,6 +116,7 @@ static fuseprov_error_etype fuseprov_blow_fuseregion(
 {
 	uint32_t i;
 	uint32_t fuse_data[2];
+	uint32_t mask_fec_msb_bits;
 	fuseprov_err_t ret;
 	uint64_t data;
 
@@ -139,6 +141,24 @@ static fuseprov_error_etype fuseprov_blow_fuseregion(
 			ERROR("Fuseprov: Failed to read fuse at 0x%x\n",
 			      entries[i].raw_row_address);
 			return FUSEPROV_QFPROM_READ_ERROR;
+		}
+
+		/*
+		 * FEC rows have hardware-computed correction bits in the top
+		 * byte of the MSB word; exclude that byte when checking
+		 * whether the target bits are already blown.
+		 */
+		mask_fec_msb_bits = (entries[i].region_type ==
+				     FUSEPROV_REGION_TYPE_FEC_EN) ?
+				    ~FUSEPROV_FEC_ROW_MSB_MASK :
+				    0xFFFFFFFF;
+
+		/* Blow only if we need to -- skip if already blown */
+		if ((fuse_data[0] & entries[i].lsb_val) ==
+		    entries[i].lsb_val &&
+		    (fuse_data[1] & entries[i].msb_val & mask_fec_msb_bits) ==
+		    (entries[i].msb_val & mask_fec_msb_bits)) {
+			continue;
 		}
 
 		/* Write new fuse value */
@@ -286,9 +306,19 @@ fuseprov_error_etype fuseprov_blow_fuses_sec_elf_v3(
 	const fuseprov_qfuse_entry_t *entries;
 	uint32_t entry_count;
 	fuseprov_error_etype ret;
+	uint32_t i;
 
-	if (buf == NULL || len == 0 || t == NULL) {
+	if (buf == NULL || len == 0 || len > FUSEPROV_SECDAT_BUFFER_SIZE ||
+	    t == NULL) {
 		return FUSEPROV_INVALID_ARG;
+	}
+
+	/* Not an error: no sec partition, or an empty one, is valid */
+	for (i = 0; i < len && buf[i] == 0; i++);
+
+	if (i == len) {
+		// NOTICE("Fuseprov: SEC.DAT buffer is empty, nothing to blow\n");
+		return  FUSEPROV_SUCCESS ;
 	}
 
 	NOTICE("Fuseprov: Starting fuse provisioning\n");
