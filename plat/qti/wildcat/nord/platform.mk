@@ -264,8 +264,4 @@ include drivers/qti/tme/tme.mk
 # Fuseprov driver: parses SEC.DAT and blows fuses via the TME transport.
 include drivers/qti/fuseprov/fuseprov.mk
 
-# Fuseprov boot self-test: read-only OEM_HW_ID probe in qti_fuseprov_init()
-# to confirm that init flow is actually reached at boot.
-$(eval $(call add_define,QTI_FUSEPROV_TEST))
-
 include $(QTI_PLAT_PATH)/common/common.mk

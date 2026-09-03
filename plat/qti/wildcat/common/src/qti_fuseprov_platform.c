@@ -110,23 +110,12 @@ int qti_fuseprov_init(void)
 	secelf_pa = 0x87452000;
 	secelf_len = 4096;
 
-	if (secelf_pa == 0 || secelf_len == 0) {
+	if (secelf_pa == 0 || secelf_len == 0 ||
+	    secelf_len > FUSEPROV_SECDAT_BUFFER_SIZE) {
 		ERROR("Fuseprov: sec.elf region out of bounds (0x%lx, %u bytes)\n",
 		      (unsigned long)secelf_pa, secelf_len);
 		return -1;
 	}
-
-#if !defined(QTI_FUSEPROV_TEST)
-	/* FUSEPROV_SECDAT_BUFFER_SIZE is still a NEEDSWORK(IPCatalog) placeholder
-	 * (0), so this check would always fail; skip it under the test build so
-	 * the self-test below can actually run until the real size is wired up.
-	 */
-	if (secelf_len > FUSEPROV_SECDAT_BUFFER_SIZE) {
-		ERROR("Fuseprov: sec.elf region out of bounds (0x%lx, %u bytes)\n",
-		      (unsigned long)secelf_pa, secelf_len);
-		return -1;
-	}
-#endif
 
 	/* secelf_pa is a DDR physical address; it is not part of any static
 	 * MMU region, so map it before use.

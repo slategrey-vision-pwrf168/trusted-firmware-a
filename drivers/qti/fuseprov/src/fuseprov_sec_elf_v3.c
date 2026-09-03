@@ -32,11 +32,13 @@ static fuseprov_error_etype fuseprov_parse_secdat_hdr(
 
 	memcpy(hdr, buffer, sizeof(fuseprov_secdat_hdr_t));
 
+#if defined(QTI_FUSEPROV_TEST)
 	INFO("Fuseprov: SEC.DAT raw bytes[0:4]=%02x %02x %02x %02x\n",
 	     buffer[0], buffer[1], buffer[2], buffer[3]);
 
 	INFO("Fuseprov: SEC.DAT magic1=0x%x magic2=0x%x\n",
 	     hdr->magic1, hdr->magic2);
+#endif /* QTI_FUSEPROV_TEST */
 
 	if (hdr->magic1 != FUSEPROV_SECDAT_MAGIC1 ||
 	    hdr->magic2 != FUSEPROV_SECDAT_MAGIC2) {
